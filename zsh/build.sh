@@ -17,5 +17,5 @@ for version in $versions; do
 done
 
 # Tag latest image
-latest=$(tr ' ' '\n' <<< "$versions" | sort -V | tail -2 | head -1)
+latest=$(tr ' ' '\n' <<< "$versions" | sed '/^$/d' | sort -V | tail -2 | head -1)
 docker tag "$USERNAME/$IMAGE:$latest" "$USERNAME/$IMAGE:latest"
