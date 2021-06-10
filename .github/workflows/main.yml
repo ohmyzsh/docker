@@ -18,7 +18,7 @@ jobs:
           for image in */Dockerfile; do
             image="$(basename $(dirname $image))"
             test -f "$image/build.sh" || continue
-            "$image/build.sh" ${{ secrets.DOCKERHUB_USER }}
+            "$image/build.sh" ${{ secrets.DOCKERHUB_ORG }}
           done
       - name: Log in to Docker Hub
         uses: docker/login-action@v1
@@ -29,5 +29,5 @@ jobs:
         run: |
           for image in */Dockerfile; do
             image="$(basename $(dirname $image))"
-            docker push ${{ secrets.DOCKERHUB_USER }}/$image --all-tags
+            docker push ${{ secrets.DOCKERHUB_ORG }}/$image --all-tags
           done
