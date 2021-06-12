@@ -7,7 +7,7 @@ on:
     - cron: "46 2 * * *"
 
 jobs:
-  build:
+  build-and-push:
     name: Build Docker images
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +17,12 @@ jobs:
         run: |
           for image in */Dockerfile; do
             image="$(basename $(dirname $image))"
-            test -f "$image/build.sh" || continue
+
+            if ! test -f "$image/build.sh"; then
+              echo "::error ::missing build.sh file at /$image"
+              exit 1
+            fi
+
             "$image/build.sh" ${{ secrets.DOCKERHUB_ORG }}
           done
       - name: Log in to Docker Hub
@@ -29,5 +34,20 @@ jobs:
         run: |
           for image in */Dockerfile; do
             image="$(basename $(dirname $image))"
-            docker push ${{ secrets.DOCKERHUB_ORG }}/$image --all-tags
+            docker push "${{ secrets.DOCKERHUB_ORG }}/$image" --all-tags
+          done
+      - name: Update image READMEs
+        env:
+          DH_USERNAME: ${{ secrets.DOCKERHUB_USER }}
+          DH_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          for image in */Dockerfile; do
+            image="$(basename $(dirname $image))"
+
+            if ! test -f "$image/README.md"; then
+              echo "::warning ::missing README.md file at /$image"
+              continue
+            fi
+
+            node .github/scripts/update-image-readme.js "${{ secrets.DOCKERHUB_ORG }}/$image" "$image/README.md"
           done
