@@ -57,22 +57,20 @@ function request(url, options, body) {
  * @returns A Promise that resolves with the API token if the call succeeds.
  */
 function getToken(username, password) {
-  return new Promise((resolve, reject) => {
-    const url = `https://hub.docker.com/v2/users/login`
-    const body = JSON.stringify({ username, password })
-    const options = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      }
+  const url = `https://hub.docker.com/v2/users/login`
+  const body = JSON.stringify({ username, password })
+  const options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
     }
+  }
 
-    return request(url, options, body).then(res => {
-      const json = JSON.parse(res)
-      if (!json.token) reject(json)
-      else resolve(json.token)
-    }).catch(reject)
+  return request(url, options, body).then(res => {
+    const json = JSON.parse(res)
+    if (!json.token) throw json
+    else return json.token
   })
 }
 
@@ -85,20 +83,18 @@ function getToken(username, password) {
  * @returns A Promise that resolves when the API call succeeds.
  */
 function updateRepositoryReadme(token, repository, readme) {
-  return new Promise((resolve, reject) => {
-    const url = `https://hub.docker.com/v2/repositories/${repository}/`
-    const body = JSON.stringify({ full_description: readme })
-    const options = {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        'Authorization': `JWT ${token}`
-      }
+  const url = `https://hub.docker.com/v2/repositories/${repository}/`
+  const body = JSON.stringify({ full_description: readme })
+  const options = {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      'Authorization': `JWT ${token}`
     }
+  }
 
-    return request(url, options, body).then(resolve).catch(reject)
-  })
+  return request(url, options, body)
 }
 
 // Get input arguments
