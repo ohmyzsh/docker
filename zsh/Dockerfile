@@ -18,10 +18,9 @@ RUN install_packages curl \
                      groff
 RUN curl -L https://api.github.com/repos/zsh-users/zsh/tarball/$ref | tar xz --strip=1
 
-# Patch signames.c generation
-COPY 0001-signals.patch .
-RUN install_packages patch
-RUN patch -s -p1 -r /dev/null < 0001-signals.patch || true
+# patch signames.c generation
+COPY 0001-signames.patch .
+RUN install_packages patch; patch -p1 -i 0001-signames.patch >/dev/null 2>&1 || true
 
 RUN ./Util/preconfig
 RUN ./configure --prefix /usr \
