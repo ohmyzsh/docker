@@ -13,7 +13,9 @@ versions="$(wget -qO- https://registry.hub.docker.com/v1/repositories/zshusers/z
 
 # Build images
 for version in $versions; do
-    docker buildx build -t "$USERNAME/$IMAGE:$version" --build-arg ZSH_VERSION="$version" .
+    ref=$version
+    [[ "$version" != master ]] && ref="zsh-$version"
+    docker buildx build -t "$USERNAME/$IMAGE:$version" --build-arg ref="$ref" .
 done
 
 # Tag latest image
