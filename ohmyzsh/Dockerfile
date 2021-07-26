@@ -4,7 +4,7 @@ LABEL org.label-schema.name="ohmyzsh"
 LABEL org.label-schema.description="Oh My Zsh versioned image"
 LABEL org.label-schema.url="https://github.com/ohmyzsh/docker"
 LABEL org.label-schema.vendor="Oh My Zsh"
-LABEL maintainer="hello@mcornella.com"
+LABEL maintainer="Marc Cornellà <hello@mcornella.com>"
 
 # set UTF-8 locale
 ENV LANG=C.UTF-8
