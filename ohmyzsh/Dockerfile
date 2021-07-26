@@ -1,9 +1,12 @@
+# This image will always use the latest stable version of zsh
 FROM zshusers/zsh:latest
 
-LABEL org.label-schema.name="ohmyzsh"
-LABEL org.label-schema.description="Oh My Zsh versioned image"
-LABEL org.label-schema.url="https://github.com/ohmyzsh/docker"
-LABEL org.label-schema.vendor="Oh My Zsh"
+# image metadata
+LABEL org.opencontainers.image.title="ohmyzsh"
+LABEL org.opencontainers.image.description="Oh My Zsh versioned image"
+LABEL org.opencontainers.image.url="https://github.com/ohmyzsh/docker"
+LABEL org.opencontainers.image.vendor="Oh My Zsh"
+LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>"
 LABEL maintainer="Marc Cornellà <hello@mcornella.com>"
 
 # set UTF-8 locale
@@ -15,7 +18,7 @@ RUN install_packages \
     git \
     curl
 
-# build with `build --build-arg OMZ_VERSION=<version>` to specify a different ohmyzsh version
+# specify the Oh My Zsh version string
 ARG OMZ_VERSION=master
 
 # install ohmyzsh
