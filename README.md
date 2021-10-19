@@ -16,4 +16,5 @@ Inside this folder there needs to be:
   and builds all the tags for the given image.
 
 - `README.md` which provides information regarding the Docker image. If the image has a README.md
-  file, this will be used to automatically update the README in Docker Hub.
+  files, this will be used to automatically update the README in Docker Hub.
+  
