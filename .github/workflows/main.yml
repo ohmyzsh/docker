@@ -1,5 +1,6 @@
 name: Publish Docker images
 on:
+  workflow_dispatch: {}
   schedule:
     - cron: "46 2 * * 1,3,5"
 
