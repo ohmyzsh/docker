@@ -8,14 +8,13 @@ USERNAME="$1"
 # Get image from directory name
 IMAGE="$(basename "$(pwd)")"
 
-# List of published zshusers/zsh Docker images
-versions="$(wget -qO- https://registry.hub.docker.com/v1/repositories/zshusers/zsh/tags | sed 's/[^0-9.]*"name": "\([^"]*\)"[^0-9.]*/\n\1\n/g;s/^\n//')"
+# $zsh_tags is an environment variable passed via secrets
 
 # Build images
-for version in $versions; do
+for version in $zsh_tags; do
     docker buildx build -t "$USERNAME/$IMAGE:$version" --build-arg ZSH_VERSION="$version" .
 done
 
 # Tag latest image
-latest=$(tr ' ' '\n' <<< "$versions" | sed '/^$/d' | sort -V | tail -2 | head -1)
+latest=$(tr ' ' '\n' <<< "$zsh_tags" | sed '/^$/d' | sort -V | tail -2 | head -1)
 docker tag "$USERNAME/$IMAGE:$latest" "$USERNAME/$IMAGE:latest"
