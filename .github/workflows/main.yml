@@ -4,73 +4,145 @@ on:
   schedule:
     - cron: "46 2 * * 1"
 
+env:
+  LATEST_ZSH: "5.9"
+  DOCKERHUB_ORG: "ohmyzsh"
+  MAIN_OMZ_BRANCH: "master" # TODO: we need to change master with main when migrating the branch
+
 jobs:
-  build-and-push:
-    name: Build Docker images
+  get-omz-versions:
+    name: Get Oh My Zsh versions
     runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+    steps:
+      - name: Get Oh My Zsh versions
+        id: versions
+        run: |
+          OMZ_VERSIONS=$(curl -sL https://api.github.com/repos/ohmyzsh/ohmyzsh/tags | jq -c '["${{ env.MAIN_OMZ_BRANCH }}",.[].name]')
+          echo "versions=$OMZ_VERSIONS" >> $GITHUB_OUTPUT
+
+  build-omz:
+    name: Build Oh My Zsh Docker image
+    runs-on: ubuntu-latest
+    needs:
+      - get-omz-versions
+    strategy:
+      matrix:
+        omz-version: ${{ fromJSON(needs.get-omz-versions.outputs.versions) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Build images
-        env:
-          zsh_tags: |
-            master
-            5.9
-            5.8.1
-            5.8
-            5.7.1
-            5.7
-            5.6.2
-            5.6.1
-            5.6
-            5.5.1
-            5.5
-            5.4.2
-            5.4.1
-            5.4
-            5.3.1
-            5.3
-            5.2
-            5.1.1
-            5.1
-            5.0.8
-            5.0.7
-            5.0.6
-            5.0.5
-            5.0.4
-            5.0.3
-            5.0.2
-            5.0.1
-            5.0.0
-            4.3.17
-            4.3.16
-            4.3.15
-            4.3.14
-            4.3.13
-            4.3.12
-            4.3.11
-        run: |
-          for image in */Dockerfile; do
-            image="$(basename $(dirname $image))"
-
-            if ! test -f "$image/build.sh"; then
-              echo "::error ::missing build.sh file at /$image"
-              exit 1
-            fi
-
-            "$image/build.sh" ${{ secrets.DOCKERHUB_ORG }}
-          done
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
       - name: Log in to Docker Hub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Push to Docker Hub
+      - name: Get tags and versions
+        id: tags
         run: |
-          for image in */Dockerfile; do
-            image="$(basename $(dirname $image))"
-            docker push "${{ secrets.DOCKERHUB_ORG }}/$image" --all-tags
-          done
+          tags=${{ env.DOCKERHUB_ORG }}/ohmyzsh:${{ matrix.omz-version }}
+          if [ ${{matrix.omz-version }} = ${{ env.MAIN_OMZ_BRANCH }} ]; then
+            tags="${tags},${{ env.DOCKERHUB_ORG }}/ohmyzsh:latest"
+          fi
+          echo "tags=$tags" >> $GITHUB_OUTPUT
+      - name: Build and push images
+        uses: docker/build-push-action@v5
+        with:
+          context: ohmyzsh
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: "OMZ_VERSION=${{ matrix.omz-version }}"
+          tags: ${{ steps.tags.outputs.tags }}
+
+  build-zsh:
+    name: Build Zsh Docker images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        zsh-version:
+          - "master"
+          - "5.9"
+          - "5.8.1"
+          - "5.8"
+          - "5.7.1"
+          - "5.7"
+          - "5.6.2"
+          - "5.6.1"
+          - "5.6"
+          - "5.5.1"
+          - "5.5"
+          - "5.4.2"
+          - "5.4.1"
+          - "5.4"
+          - "5.3.1"
+          - "5.3"
+          - "5.2"
+          - "5.1.1"
+          - "5.1"
+          - "5.0.8"
+          - "5.0.7"
+          - "5.0.6"
+          - "5.0.5"
+          - "5.0.4"
+          - "5.0.3"
+          - "5.0.2"
+          - "5.0.1"
+          - "5.0.0"
+          - "4.3.17"
+          - "4.3.16"
+          - "4.3.15"
+          - "4.3.14"
+          - "4.3.13"
+          - "4.3.12"
+          - "4.3.11"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Get tags and versions
+        id: tags
+        run: |
+          tags=${{ env.DOCKERHUB_ORG }}/zsh:${{ matrix.zsh-version }}
+          if [ ${{matrix.zsh-version }} = ${{ env.LATEST_ZSH }} ]; then
+            tags="${tags},${{ env.DOCKERHUB_ORG }}/zsh:latest"
+          fi
+          echo "tags=$tags" >> $GITHUB_OUTPUT
+      - name: Build and push images
+        uses: docker/build-push-action@v5
+        with:
+          context: zsh
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
+          tags: ${{ steps.tags.outputs.tags }}
+
+  update-image-readme:
+    needs:
+      - build-zsh
+      - build-omz
+    runs-on: ubuntu-latest
+    steps:
       - name: Update image READMEs
         env:
           DH_USERNAME: ${{ secrets.DOCKERHUB_USER }}
@@ -84,5 +156,5 @@ jobs:
               continue
             fi
 
-            node .github/scripts/update-image-readme.js "${{ secrets.DOCKERHUB_ORG }}/$image" "$image/README.md"
+            node .github/scripts/update-image-readme.js "${{ env.DOCKERHUB_ORG }}/$image" "$image/README.md"
           done
