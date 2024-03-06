@@ -142,6 +142,7 @@ jobs:
       - build-zsh
       - build-omz
     runs-on: ubuntu-latest
+    if: false
     steps:
       - name: Update image READMEs
         env:
