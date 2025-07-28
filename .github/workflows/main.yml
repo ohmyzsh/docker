@@ -8,6 +8,9 @@ on:
   schedule:
     - cron: "46 2 * * 1"
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: "docker.io"
   DOCKERHUB_ORG: "ohmyzsh"
@@ -65,7 +68,7 @@ jobs:
           echo "tags=$tags" >> $GITHUB_OUTPUT
       - name: Build and push images
         id: push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ohmyzsh
           platforms: linux/amd64,linux/arm64
@@ -146,7 +149,7 @@ jobs:
           echo "tags=$tags" >> $GITHUB_OUTPUT
       - name: Build and push images
         id: push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: zsh
           platforms: linux/amd64,linux/arm64
