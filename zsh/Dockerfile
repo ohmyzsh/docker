@@ -12,6 +12,11 @@ LABEL maintainer="Marc Cornellà <hello@mcornella.com>"
 # set UTF-8 locale
 ENV LANG=C.UTF-8
 
+# TODO: update base to avoid using deprecated debian versions
+COPY sources.list /etc/apt/
+
+RUN cat /etc/apt/sources.list
+
 # install basic tools
 RUN install_packages \
       ca-certificates \
