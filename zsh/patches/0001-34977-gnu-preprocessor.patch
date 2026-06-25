@@ -1,0 +1,38 @@
+From 9f9a16f43c5c66d3a764ef2abaacca6a3d91f89c Mon Sep 17 00:00:00 2001
+From: Peter Stephenson <pws@zsh.org>
+Date: Tue, 28 Apr 2015 09:20:15 +0100
+Subject: [PATCH] 34977: more reliable test if preprocessor is GNU
+
+---
+ ChangeLog   | 5 +++++
+ Src/zsh.mdd | 4 ++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/ChangeLog b/ChangeLog
+index da46ea1b4..2611bdd48 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,8 @@
++2015-04-28  Peter Stephenson  <p.stephenson@samsung.com>
++
++	* 34977: Src/zsh.mdd: more reliable test for whether
++	preprocessor is GNU.
++
+ 2015-04-25  Barton E. Schaefer  <schaefer@zsh.org>
+ 
+ 	* 34966: Src/hashtable.c: "whence -v" for a function reports
+diff --git a/Src/zsh.mdd b/Src/zsh.mdd
+index 71dd61374..c2e59c910 100644
+--- a/Src/zsh.mdd
++++ b/Src/zsh.mdd
+@@ -28,8 +28,8 @@ hdrdeps="zshcurses.h zshterm.h"
+ # on the option to remove them being the same.
+ signames.c: signames1.awk signames2.awk ../config.h @SIGNAL_H@
+ 	$(AWK) -f $(sdir)/signames1.awk @SIGNAL_H@ >sigtmp.c
+-	case "$(CPP)" in \
+-	gcc*) \
++	case "`$(CPP) --version </dev/null 2>&1`" in \
++	*"Free Software Foundation"*) \
+ 	$(CPP) -P sigtmp.c >sigtmp.out;; \
+ 	*) \
+ 	$(CPP) sigtmp.c >sigtmp.out;; \
