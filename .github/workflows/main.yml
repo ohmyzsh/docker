@@ -14,7 +14,7 @@ permissions:
 env:
   REGISTRY: "docker.io"
   DOCKERHUB_ORG: "ohmyzsh"
-  LATEST_ZSH: "5.9"
+  LATEST_ZSH: "5.9.1"
   LATEST_OMZ: "master" # TODO: we need to change master with main when migrating the branch
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
 
   build-omz:
     name: Build Oh My Zsh Docker image
+    if: false
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: "ohmyzsh/ohmyzsh"
@@ -62,6 +63,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
@@ -94,9 +96,11 @@ jobs:
     env:
       IMAGE_NAME: "ohmyzsh/zsh"
     strategy:
+      fail-fast: false
       matrix:
         zsh-version:
           - "master"
+          - "5.9.1"
           - "5.9"
           - "5.8.1"
           - "5.8"
@@ -131,6 +135,8 @@ jobs:
           - "4.3.13"
           - "4.3.12"
           - "4.3.11"
+          - "4.3.10"
+          - "4.3.9"
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -148,6 +154,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
