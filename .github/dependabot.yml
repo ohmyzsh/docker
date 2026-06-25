@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /ohmyzsh
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /zsh
+    schedule:
+      interval: daily
