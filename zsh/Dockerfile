@@ -20,6 +20,7 @@ RUN apt-get update; \
       libncurses-dev \
       libpcre2-dev \
       make \
+      patch \
       texinfo \
       yodl; \
     apt-get clean; \
@@ -34,9 +35,14 @@ RUN if [ "$ZSH_VERSION" = "master" ]; then \
     fi; \
     git clone --depth 1 --branch "$ZSH_REF" https://github.com/zsh-users/zsh.git zsh
 
+COPY patches/ /tmp/zsh-patches/
+
 WORKDIR /usr/src/zsh
 
-RUN ./Util/preconfig; \
+RUN for patch_file in /tmp/zsh-patches/*.patch; do \
+      patch -N -s -p1 -r /dev/null -i "$patch_file" || true; \
+    done; \
+    ./Util/preconfig; \
     build_platform="$(dpkg --print-architecture)"; \
     case "$build_platform" in \
       amd64) build_platform="x86_64" ;; \
