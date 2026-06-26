@@ -38,13 +38,14 @@ jobs:
   build-omz:
     name: Build Oh My Zsh Docker image
     if: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04${{ matrix.platform == 'linux/arm64' && '-arm' || '' }}
     env:
       IMAGE_NAME: "ohmyzsh/ohmyzsh"
     needs:
       - get-omz-versions
     strategy:
       matrix:
+        platform: [linux/amd64, linux/arm64]
         omz-version: ${{ fromJSON(needs.get-omz-versions.outputs.versions) }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -54,14 +55,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
       - name: Log in to Docker Hub
         if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -83,7 +80,7 @@ jobs:
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ohmyzsh
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: "OMZ_VERSION=${{ matrix.omz-version }}"
           tags: ${{ steps.tags.outputs.tags }}
@@ -92,12 +89,13 @@ jobs:
 
   build-zsh:
     name: Build Zsh Docker images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04${{ matrix.platform == 'linux/arm64' && '-arm' || '' }}
     env:
       IMAGE_NAME: "ohmyzsh/zsh"
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux/amd64, linux/arm64]
         zsh-version:
           - "master"
           - "5.9.1"
@@ -145,14 +143,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         with:
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
       - name: Log in to Docker Hub
         if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -174,7 +168,7 @@ jobs:
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: zsh
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
           tags: ${{ steps.tags.outputs.tags }}
