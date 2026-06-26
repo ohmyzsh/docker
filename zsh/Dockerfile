@@ -60,7 +60,11 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       --with-term-lib='ncursesw tinfo' \
       --enable-etcdir=/etc/zsh; \
     make -j"$(nproc)"; \
-    make DESTDIR=/opt/zsh install.bin install.modules install.fns install.man install.info install.runhelp; \
+    install_targets="install.bin install.modules install.fns install.man install.info"; \
+    if dpkg --compare-versions "$ZSH_VERSION" ge 5.0.3; then \
+      install_targets="$install_targets install.runhelp"; \
+    fi; \
+    make DESTDIR=/opt/zsh $install_targets; \
     strip /opt/zsh/usr/bin/zsh; \
     find /opt/zsh -type f -name '*.a' -delete
 
