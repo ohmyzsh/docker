@@ -8,18 +8,6 @@ Subject: [PATCH] 41342: check for Yodl version 4
  configure.ac | 1 +
  2 files changed, 3 insertions(+)
 
-diff --git a/ChangeLog b/ChangeLog
-index 7c53f70d1..ca99a6a7b 100644
---- a/ChangeLog
-+++ b/ChangeLog
-@@ -1,5 +1,7 @@
- 2017-06-22  Peter Stephenson  <p.stephenson@samsung.com>
- 
-+	* Axel: 41342: conigure.ac: check for yodl version 4.
-+
- 	* 41339: Completion/Unix/Command/_git: unquote treeish argument
- 	for git checkout completion.
- 
 diff --git a/configure.ac b/configure.ac
 index 88da89e3e..ec0bdae6e 100644
 --- a/configure.ac
