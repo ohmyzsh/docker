@@ -22,9 +22,7 @@ RUN apt-get update; \
       make \
       patch \
       texinfo \
-      yodl; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+      yodl
 
 WORKDIR /usr/src
 
@@ -74,9 +72,10 @@ FROM debian:${DEBIAN_VERSION}
 LABEL org.opencontainers.image.title="ohmyzsh/zsh"
 LABEL org.opencontainers.image.description="Zsh versioned image built from zsh-users/zsh"
 LABEL org.opencontainers.image.url="https://github.com/ohmyzsh/docker"
+LABEL org.opencontainers.image.source="https://github.com/ohmyzsh/docker"
+LABEL org.opencontainers.image.documentation="https://github.com/ohmyzsh/docker/tree/master/zsh"
 LABEL org.opencontainers.image.vendor="Oh My Zsh"
-LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>"
-LABEL maintainer="Marc Cornellà <hello@mcornella.com>"
+LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>, Carlo Sala <carlosalag@protonmail.com>"
 
 # set UTF-8 locale
 ENV LANG=C.UTF-8
@@ -88,22 +87,21 @@ RUN apt-get update; \
     apt-get install -y --no-install-recommends \
       info \
       less \
-      libgdbm6 \
+      libcap2 \
+      libgdbm6t64 \
       libncursesw6 \
+      libpcre2-8-0 \
       man-db; \
     apt-get clean; \
     rm -rf \
       /var/lib/apt/lists/* \
-      /var/cache/apt/* \
-      /var/cache/man/* \
-      /usr/share/doc/* \
-      /tmp/* \
-      /var/tmp/*
+      /usr/share/doc/*
 
 COPY --from=builder /opt/zsh/ /
 
 RUN if ! grep -qx /usr/bin/zsh /etc/shells; then \
       echo /usr/bin/zsh >> /etc/shells; \
-    fi
+    fi; \
+    chsh -s /usr/bin/zsh root
 
 CMD ["zsh"]
