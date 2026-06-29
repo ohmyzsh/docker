@@ -14,8 +14,9 @@ permissions:
 env:
   REGISTRY: "docker.io"
   DOCKERHUB_ORG: "ohmyzsh"
-  LATEST_ZSH: "5.9"
+  LATEST_ZSH: "5.9.1"
   LATEST_OMZ: "master" # TODO: we need to change master with main when migrating the branch
+  ZSH_VERSIONS: '["master","5.9.1","5.9","5.8.1","5.8","5.7.1","5.7","5.6.2","5.6.1","5.6","5.5.1","5.5","5.4.2","5.4.1","5.4","5.3.1","5.3","5.2","5.1.1","5.1","5.0.8","5.0.7","5.0.6","5.0.5","5.0.4","5.0.3","5.0.2","5.0.1","5.0.0","4.3.17","4.3.16","4.3.15","4.3.14","4.3.13","4.3.12","4.3.11","4.3.10","4.3.9"]'
 
 jobs:
   get-omz-versions:
@@ -23,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.versions.outputs.versions }}
+      non_latest_versions: ${{ steps.versions.outputs.non_latest_versions }}
+      zsh_versions: ${{ steps.versions.outputs.zsh_versions }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -32,19 +35,23 @@ jobs:
       - name: Get Oh My Zsh versions
         id: versions
         run: |
-          OMZ_VERSIONS=$(curl -sL https://api.github.com/repos/ohmyzsh/ohmyzsh/tags | jq -c '["${{ env.LATEST_OMZ }}",.[].name]')
+          OMZ_TAGS="$(curl -sL https://api.github.com/repos/ohmyzsh/ohmyzsh/tags)"
+          OMZ_VERSIONS="$(printf '%s' "$OMZ_TAGS" | jq -c --arg latest "${{ env.LATEST_OMZ }}" '[$latest] + (map(.name) | map(select(. != $latest)))')"
+          NON_LATEST_OMZ_VERSIONS="$(printf '%s' "$OMZ_TAGS" | jq -c --arg latest "${{ env.LATEST_OMZ }}" 'map(.name) | map(select(. != $latest))')"
           echo "versions=$OMZ_VERSIONS" >> $GITHUB_OUTPUT
+          echo "non_latest_versions=$NON_LATEST_OMZ_VERSIONS" >> $GITHUB_OUTPUT
+          echo 'zsh_versions=${{ env.ZSH_VERSIONS }}' >> $GITHUB_OUTPUT
 
-  build-omz:
-    name: Build Oh My Zsh Docker image
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: "ohmyzsh/ohmyzsh"
+  build-zsh-and-latest-omz:
+    name: Build Zsh and latest Oh My Zsh Docker images
+    runs-on: ubuntu-24.04${{ matrix.platform == 'linux/arm64' && '-arm' || '' }}
     needs:
       - get-omz-versions
     strategy:
+      fail-fast: false
       matrix:
-        omz-version: ${{ fromJSON(needs.get-omz-versions.outputs.versions) }}
+        platform: [linux/amd64, linux/arm64]
+        zsh-version: ${{ fromJSON(needs.get-omz-versions.outputs.zsh_versions) }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -53,131 +60,134 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
+      - name: Start local registry
+        run: docker run -d -p 5000:5000 --restart=always --name registry registry:3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
+          driver-opts: network=host
       - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Get tags and versions
-        id: tags
+      - name: Get Zsh tags
+        id: zsh-tags
         run: |
-          tags="${{ env.IMAGE_NAME }}:${{ matrix.omz-version }}"
-          tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.omz-version }}"
-          if [ ${{matrix.omz-version }} = ${{ env.LATEST_OMZ }} ]; then
-            tags="${tags},${{ env.IMAGE_NAME }}:latest"
-            tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          image_name="${{ env.DOCKERHUB_ORG }}/zsh"
+          local_image="localhost:5000/${image_name}:${{ matrix.zsh-version }}"
+          tags="${image_name}:${{ matrix.zsh-version }}"
+          tags="${tags},${{ env.REGISTRY }}/${image_name}:${{ matrix.zsh-version }}"
+          if [ "${{ matrix.zsh-version }}" = "${{ env.LATEST_ZSH }}" ]; then
+            tags="${tags},${image_name}:latest"
+            tags="${tags},${{ env.REGISTRY }}/${image_name}:latest"
           fi
-          echo "tags=$tags" >> $GITHUB_OUTPUT
-      - name: Build and push images
-        id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: ohmyzsh
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          build-args: "OMZ_VERSION=${{ matrix.omz-version }}"
-          tags: ${{ steps.tags.outputs.tags }}
-          provenance: mode=max
-          sbom: true
-
-  build-zsh:
-    name: Build Zsh Docker images
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: "ohmyzsh/zsh"
-    strategy:
-      matrix:
-        zsh-version:
-          - "master"
-          - "5.9"
-          - "5.8.1"
-          - "5.8"
-          - "5.7.1"
-          - "5.7"
-          - "5.6.2"
-          - "5.6.1"
-          - "5.6"
-          - "5.5.1"
-          - "5.5"
-          - "5.4.2"
-          - "5.4.1"
-          - "5.4"
-          - "5.3.1"
-          - "5.3"
-          - "5.2"
-          - "5.1.1"
-          - "5.1"
-          - "5.0.8"
-          - "5.0.7"
-          - "5.0.6"
-          - "5.0.5"
-          - "5.0.4"
-          - "5.0.3"
-          - "5.0.2"
-          - "5.0.1"
-          - "5.0.0"
-          - "4.3.17"
-          - "4.3.16"
-          - "4.3.15"
-          - "4.3.14"
-          - "4.3.13"
-          - "4.3.12"
-          - "4.3.11"
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        with:
-          platforms: linux/amd64,linux/arm64
-      - name: Log in to Docker Hub
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Get tags and versions
-        id: tags
-        run: |
-          tags="${{ env.IMAGE_NAME }}:${{ matrix.zsh-version }}"
-          tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.zsh-version }}"
-          if [ ${{matrix.zsh-version }} = ${{ env.LATEST_ZSH }} ]; then
-            tags="${tags},${{ env.IMAGE_NAME }}:latest"
-            tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          fi
-          echo "tags=$tags" >> $GITHUB_OUTPUT
-      - name: Build and push images
-        id: push
+          echo "local_image=$local_image" >> $GITHUB_OUTPUT
+          echo "publish_tags=$tags" >> $GITHUB_OUTPUT
+      - name: Build Zsh image and publish Docker Hub tags
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: zsh
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          platforms: ${{ matrix.platform }}
+          push: true
           build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.zsh-tags.outputs.local_image }},${{ steps.zsh-tags.outputs.publish_tags }}
+          provenance: mode=max
+          sbom: true
+      - name: Build Zsh image for local Oh My Zsh base only
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: zsh
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
+          tags: ${{ steps.zsh-tags.outputs.local_image }}
+      - name: Get latest Oh My Zsh tags
+        id: latest-omz-tags
+        run: |
+          image_name="${{ env.DOCKERHUB_ORG }}/ohmyzsh"
+          tags="${image_name}:${{ matrix.zsh-version }}-${{ env.LATEST_OMZ }}"
+          tags="${tags},${{ env.REGISTRY }}/${image_name}:${{ matrix.zsh-version }}-${{ env.LATEST_OMZ }}"
+          if [ "${{ matrix.zsh-version }}" = "${{ env.LATEST_ZSH }}" ]; then
+            tags="${tags},${image_name}:${{ env.LATEST_OMZ }}"
+            tags="${tags},${{ env.REGISTRY }}/${image_name}:${{ env.LATEST_OMZ }}"
+            tags="${tags},${image_name}:latest"
+            tags="${tags},${{ env.REGISTRY }}/${image_name}:latest"
+          fi
+          echo "tags=$tags" >> $GITHUB_OUTPUT
+      - name: Build latest Oh My Zsh images
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ohmyzsh
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            OMZ_VERSION=${{ env.LATEST_OMZ }}
+            ZSH_BASE_IMAGE=${{ steps.zsh-tags.outputs.local_image }}
+          tags: ${{ steps.latest-omz-tags.outputs.tags }}
+          provenance: mode=max
+          sbom: true
+
+  build-omz-versions:
+    name: Build Oh My Zsh versioned Docker images
+    if: ${{ needs.get-omz-versions.outputs.non_latest_versions != '[]' }}
+    runs-on: ubuntu-24.04${{ matrix.platform == 'linux/arm64' && '-arm' || '' }}
+    needs:
+      - get-omz-versions
+      - build-zsh-and-latest-omz
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        omz-version: ${{ fromJSON(needs.get-omz-versions.outputs.non_latest_versions) }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          platforms: ${{ matrix.platform }}
+      - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Get Oh My Zsh tags
+        id: omz-tags
+        run: |
+          image_name="${{ env.DOCKERHUB_ORG }}/ohmyzsh"
+          tags="${image_name}:${{ env.LATEST_ZSH }}-${{ matrix.omz-version }}"
+          tags="${tags},${{ env.REGISTRY }}/${image_name}:${{ env.LATEST_ZSH }}-${{ matrix.omz-version }}"
+          tags="${tags},${image_name}:${{ matrix.omz-version }}"
+          tags="${tags},${{ env.REGISTRY }}/${image_name}:${{ matrix.omz-version }}"
+          echo "tags=$tags" >> $GITHUB_OUTPUT
+      - name: Build Oh My Zsh images
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ohmyzsh
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            OMZ_VERSION=${{ matrix.omz-version }}
+            ZSH_BASE_IMAGE=${{ env.REGISTRY }}/${{ env.DOCKERHUB_ORG }}/zsh:${{ env.LATEST_ZSH }}
+          tags: ${{ steps.omz-tags.outputs.tags }}
           provenance: mode=max
           sbom: true
 
   update-image-readme:
     needs:
-      - build-zsh
-      - build-omz
+      - build-zsh-and-latest-omz
+      - build-omz-versions
     runs-on: ubuntu-latest
     if: ${{ github.event_name != 'pull_request' }}
     steps:

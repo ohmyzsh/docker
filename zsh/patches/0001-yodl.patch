@@ -1,0 +1,43 @@
+commit 7d06bc98c5dc6b8f415ace0db06205554b73cd12
+Author: Wayne Davison <wayned@users.sourceforge.net>
+Date:   Mon Jan 17 02:42:24 2011 +0000
+
+    Use the -L option with yodl 3.x.
+
+diff --git a/Config/defs.mk.in b/Config/defs.mk.in
+index 69edf7005..cd3afa6c4 100644
+--- a/Config/defs.mk.in
++++ b/Config/defs.mk.in
+@@ -73,9 +73,9 @@ IMPOPT          = @IMPOPT@
+ # utilities
+ AWK             = @AWK@
+ ANSI2KNR        = @ANSI2KNR@
+-YODL            = @YODL@
+-YODL2TXT        = $(YODL)2txt
+-YODL2HTML       = $(YODL)2html
++YODL            = @YODL@ @YODL_OPTIONS@
++YODL2TXT        = @YODL@2txt
++YODL2HTML       = @YODL@2html
+ PDFETEX		= @PDFETEX@
+ TEXI2PDF	= @TEXI2PDF@
+ 
+diff --git a/configure.ac b/configure.ac
+index a93eb5115..91e169ce5 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -539,6 +539,15 @@ AC_PROG_AWK                 dnl Check for mawk,gawk,nawk, then awk.
+ AC_PROG_LN                  dnl Check for working ln, for "make install"
+ AC_PROG_EGREP               dnl sets $EGREP to grep -E or egrep
+ AC_CHECK_PROGS([YODL], [yodl], [: yodl])
++
++YODL_OPTIONS=''
++if test "x$ac_cv_prog_YODL" = xyodl; then
++    case `yodl --version` in
++      *"version 3."*) YODL_OPTIONS='-L' ;;
++    esac
++fi
++AC_SUBST(YODL_OPTIONS)
++
+ AC_CHECK_PROGS([PDFETEX], [pdfetex], [: pdfetex])
+ AC_CHECK_PROGS([TEXI2PDF], [texi2pdf], [])
+ AC_CHECK_PROGS([TEXI2HTML], [texi2html], [])
