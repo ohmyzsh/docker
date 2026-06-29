@@ -1,27 +1,31 @@
-# This image will always use the latest stable version of zsh
-FROM zshusers/zsh:latest
+ARG ZSH_BASE_IMAGE=ohmyzsh/zsh:latest
+FROM ${ZSH_BASE_IMAGE}
 
 # image metadata
 LABEL org.opencontainers.image.title="ohmyzsh"
 LABEL org.opencontainers.image.description="Oh My Zsh versioned image"
 LABEL org.opencontainers.image.url="https://github.com/ohmyzsh/docker"
+LABEL org.opencontainers.image.source="https://github.com/ohmyzsh/docker"
+LABEL org.opencontainers.image.documentation="https://github.com/ohmyzsh/docker/tree/master/ohmyzsh"
 LABEL org.opencontainers.image.vendor="Oh My Zsh"
-LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>"
-LABEL maintainer="Marc Cornellà <hello@mcornella.com>"
+LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>, Carlo Sala <carlosalag@protonmail.com>"
 
 # set UTF-8 locale
 ENV LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
 
-# TODO: update base to avoid using deprecated debian versions
-COPY sources.list /etc/apt/
-
-RUN cat /etc/apt/sources.list
+SHELL ["/bin/sh", "-euc"]
 
 # install basic tools
-RUN install_packages \
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
-    curl
+    curl; \
+    apt-get clean; \
+    rm -rf \
+      /var/lib/apt/lists/* \
+      /usr/share/doc/*
 
 # specify the Oh My Zsh version string
 ARG OMZ_VERSION=master
