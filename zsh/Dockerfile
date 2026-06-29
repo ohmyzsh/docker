@@ -41,6 +41,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       patch -N -s -p1 -r /dev/null -i "$patch_file" || true; \
     done; \
     ./Util/preconfig; \
+    export CFLAGS="${CFLAGS-} -Wno-error=implicit-int -Wno-error=implicit-function-declaration"; \
     build_platform="$(dpkg --print-architecture)"; \
     case "$build_platform" in \
       amd64) build_platform="x86_64" ;; \
@@ -51,6 +52,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       --prefix=/usr \
       --mandir=/usr/share/man \
       --infodir=/usr/share/info \
+      --with-tcsetpgrp \
       --enable-pcre \
       --enable-cap \
       --enable-gdbm \
