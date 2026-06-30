@@ -2,7 +2,6 @@ ARG DEBIAN_VERSION=trixie-slim
 ARG ZSH_VERSION=5.9.1
 
 FROM debian:${DEBIAN_VERSION} AS builder
-ARG ZSH_VERSION
 ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/sh", "-euxc"]
@@ -24,16 +23,17 @@ RUN apt-get update; \
       texinfo \
       yodl
 
+COPY patches/ /tmp/zsh-patches/
+
 WORKDIR /usr/src
 
+ARG ZSH_VERSION
 RUN if [ "$ZSH_VERSION" = "master" ]; then \
       ZSH_REF="master"; \
     else \
       ZSH_REF="zsh-$ZSH_VERSION"; \
     fi; \
     git clone --depth 1 --branch "$ZSH_REF" https://github.com/zsh-users/zsh.git zsh
-
-COPY patches/ /tmp/zsh-patches/
 
 WORKDIR /usr/src/zsh
 
@@ -69,6 +69,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
     find /opt/zsh -type f -name '*.a' -delete
 
 FROM debian:${DEBIAN_VERSION}
+ARG DEBIAN_FRONTEND=noninteractive
 
 # image metadata
 LABEL org.opencontainers.image.title="ohmyzsh/zsh"
@@ -81,7 +82,6 @@ LABEL org.opencontainers.image.authors="Marc Cornellà <hello@mcornella.com>, Ca
 
 # set UTF-8 locale
 ENV LANG=C.UTF-8
-ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/sh", "-euxc"]
 

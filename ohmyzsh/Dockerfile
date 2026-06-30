@@ -1,3 +1,4 @@
+ARG OMZ_VERSION=master
 ARG ZSH_BASE_IMAGE=ohmyzsh/zsh:latest
 FROM ${ZSH_BASE_IMAGE}
 
@@ -28,7 +29,7 @@ RUN apt-get update; \
       /usr/share/doc/*
 
 # specify the Oh My Zsh version string
-ARG OMZ_VERSION=master
+ARG OMZ_VERSION
 
 # install ohmyzsh
 RUN BRANCH=${OMZ_VERSION} \
