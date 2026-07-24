@@ -1,7 +1,6 @@
-ARG DEBIAN_VERSION=trixie-slim
 ARG ZSH_VERSION=5.9.2
 
-FROM debian:${DEBIAN_VERSION} AS builder
+FROM debian:trixie-slim AS builder
 ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/sh", "-euxc"]
@@ -92,7 +91,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
     strip /opt/zsh/usr/bin/zsh; \
     find /opt/zsh -type f -name '*.a' -delete
 
-FROM debian:${DEBIAN_VERSION}
+FROM debian:trixie-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
 # image metadata
