@@ -10,7 +10,9 @@ RUN apt-get update; \
     apt-get install -y --no-install-recommends \
       autoconf \
       bsdextrautils \
+      bzip2 \
       ca-certificates \
+      curl \
       gcc \
       git \
       groff-base \
@@ -28,6 +30,26 @@ COPY patches/ /tmp/zsh-patches/
 WORKDIR /usr/src
 
 ARG ZSH_VERSION
+RUN if [ "$ZSH_VERSION" = "master" ] || dpkg --compare-versions "$ZSH_VERSION" ge 5.9.1; then \
+      exit 0; \
+    fi; \
+    curl -fL \
+      -o pcre-8.45.tar.bz2 \
+      https://downloads.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.bz2; \
+    echo "4dae6fdcd2bb0bb6c37b5f97c33c2be954da743985369cddac3546e3218bffb8  pcre-8.45.tar.bz2" | sha256sum -c -; \
+    tar -xjf pcre-8.45.tar.bz2; \
+    cd pcre-8.45; \
+    ./configure \
+      --disable-cpp \
+      --disable-shared \
+      --enable-static \
+      --with-pic \
+      --enable-utf \
+      --enable-unicode-properties \
+      --enable-jit; \
+    make -j"$(nproc)"; \
+    make install
+
 RUN if [ "$ZSH_VERSION" = "master" ]; then \
       ZSH_REF="master"; \
     else \
