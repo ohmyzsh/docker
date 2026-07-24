@@ -9,6 +9,7 @@ SHELL ["/bin/sh", "-euxc"]
 RUN apt-get update; \
     apt-get install -y --no-install-recommends \
       autoconf \
+      autotools-dev \
       bsdextrautils \
       bzip2 \
       ca-certificates \
@@ -63,6 +64,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       patch -N -s -p1 -r /dev/null -i "$patch_file" || true; \
     done; \
     ./Util/preconfig; \
+    install -m 0755 /usr/share/misc/config.sub Config/config.sub; \
     export CFLAGS="${CFLAGS-} -Wno-error=implicit-int -Wno-error=implicit-function-declaration"; \
     build_platform="$(dpkg --print-architecture)"; \
     case "$build_platform" in \
