@@ -58,7 +58,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Start local registry
-        run: docker run -d -p 5000:5000 --restart=always --name registry registry:3
+        run: |
+          mkdir -p "${{ runner.temp }}/registry"
+          docker run -d -p 5000:5000 --restart=always --name registry \
+            -v "${{ runner.temp }}/registry:/var/lib/registry" \
+            registry:3
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
@@ -107,6 +111,21 @@ jobs:
           push: true
           build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
           tags: ${{ steps.zsh-tags.outputs.local_image }}
+      - name: Archive latest Zsh image for historical Oh My Zsh builds
+        if: ${{ github.event_name == 'pull_request' && matrix.zsh-version == env.LATEST_ZSH }}
+        run: |
+          docker stop registry
+          tar -C "${{ runner.temp }}/registry" \
+            -cf "${{ runner.temp }}/zsh-base-registry.tar" .
+          docker start registry
+      - name: Upload latest Zsh image
+        if: ${{ github.event_name == 'pull_request' && matrix.zsh-version == env.LATEST_ZSH }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-zsh-base-registry
+          path: ${{ runner.temp }}/zsh-base-registry.tar
+          compression-level: 0
+          retention-days: 1
       - name: Get latest Oh My Zsh tags
         id: latest-omz-tags
         run: |
@@ -152,9 +171,21 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Download latest Zsh image
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pr-zsh-base-registry
+          path: ${{ runner.temp }}
       - name: Start local registry
         if: ${{ github.event_name == 'pull_request' }}
-        run: docker run -d -p 5000:5000 --restart=always --name registry registry:3
+        run: |
+          mkdir -p "${{ runner.temp }}/registry"
+          tar -C "${{ runner.temp }}/registry" \
+            -xf "${{ runner.temp }}/zsh-base-registry.tar"
+          docker run -d -p 5000:5000 --restart=always --name registry \
+            -v "${{ runner.temp }}/registry:/var/lib/registry" \
+            registry:3
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
@@ -170,15 +201,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build latest Zsh image for local Oh My Zsh base
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: zsh
-          platforms: ${{ env.PLATFORMS }}
-          push: true
-          build-args: "ZSH_VERSION=${{ env.LATEST_ZSH }}"
-          tags: localhost:5000/${{ env.DOCKERHUB_ORG }}/zsh:${{ env.LATEST_ZSH }}
       - name: Select Zsh base image
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
