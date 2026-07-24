@@ -61,7 +61,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       --enable-etcdir=/etc/zsh; \
     make -j"$(nproc)"; \
     install_targets="install.bin install.modules install.fns install.man install.info"; \
-    if dpkg --compare-versions "$ZSH_VERSION" ge 5.0.3; then \
+    if [ "$ZSH_VERSION" = "master" ] || dpkg --compare-versions "$ZSH_VERSION" ge 5.0.3; then \
       install_targets="$install_targets install.runhelp"; \
     fi; \
     make DESTDIR=/opt/zsh $install_targets; \
