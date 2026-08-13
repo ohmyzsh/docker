@@ -89,7 +89,13 @@ jobs:
             tags="${tags},${image_name}:latest"
             tags="${tags},${{ env.REGISTRY }}/${image_name}:latest"
           fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_image="$local_image"
+          else
+            base_image="${{ env.REGISTRY }}/${image_name}:${{ matrix.zsh-version }}"
+          fi
           echo "local_image=$local_image" >> "$GITHUB_OUTPUT"
+          echo "base_image=$base_image" >> "$GITHUB_OUTPUT"
           echo "publish_tags=$tags" >> "$GITHUB_OUTPUT"
       - name: Build Zsh image and publish Docker Hub tags
         if: ${{ github.event_name != 'pull_request' }}
@@ -147,7 +153,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             OMZ_VERSION=${{ env.LATEST_OMZ }}
-            ZSH_BASE_IMAGE=${{ steps.zsh-tags.outputs.local_image }}
+            ZSH_BASE_IMAGE=${{ steps.zsh-tags.outputs.base_image }}
           tags: ${{ steps.latest-omz-tags.outputs.tags }}
           provenance: mode=max
           sbom: true
