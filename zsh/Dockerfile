@@ -64,7 +64,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
     done; \
     ./Util/preconfig; \
     install -m 0755 /usr/share/misc/config.sub Config/config.sub; \
-    export CFLAGS="${CFLAGS-} -Wno-error=implicit-int -Wno-error=implicit-function-declaration"; \
+    export CFLAGS="${CFLAGS:--O2} -Wno-error=implicit-int -Wno-error=implicit-function-declaration"; \
     build_platform="$(dpkg --print-architecture)"; \
     case "$build_platform" in \
       amd64) build_platform="x86_64" ;; \
