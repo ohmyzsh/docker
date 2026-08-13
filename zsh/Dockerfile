@@ -60,7 +60,8 @@ RUN if [ "$ZSH_VERSION" = "master" ]; then \
 WORKDIR /usr/src/zsh
 
 RUN for patch_file in /tmp/zsh-patches/*.patch; do \
-      patch -N -s -p1 -r /dev/null -i "$patch_file" || true; \
+      patch -N -p1 -i "$patch_file" \
+        || echo "warning: ${patch_file} did not apply cleanly"; \
     done; \
     ./Util/preconfig; \
     install -m 0755 /usr/share/misc/config.sub Config/config.sub; \
