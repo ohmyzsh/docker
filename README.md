@@ -17,4 +17,6 @@ Inside this folder there needs to be:
 - `README.md` which provides information regarding the Docker image. If the image has a README.md
   file, this will be used to automatically update the README in Docker Hub.
 
-There also needs to be a separate build job for each image in the [`.github/workflows/main.yml`](https://github.com/ohmyzsh/docker/actions/workflows/main.yml) file.
+Each image also needs a target in [`docker-bake.hcl`](docker-bake.hcl) and a job that builds it in
+[`.github/workflows/main.yml`](.github/workflows/main.yml). See [`docs/ci-workflow.md`](docs/ci-workflow.md)
+for how the build and publish pipeline works.

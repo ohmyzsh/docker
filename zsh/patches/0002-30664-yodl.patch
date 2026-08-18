@@ -1,0 +1,20 @@
+commit d88365d964cb521097f70efb21935a776659a7ed
+Author: Peter Stephenson <pws@users.sourceforge.net>
+Date:   Sun Sep 9 18:29:05 2012 +0000
+
+    30664: Jun T.: fix some Yodl version issues
+
+diff --git a/configure.ac b/configure.ac
+index 986ef3a33..5528597ba 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -565,7 +565,8 @@ AC_CHECK_PROGS([YODL], [yodl], [: yodl])
+ YODL_OPTIONS=''
+ if test "x$ac_cv_prog_YODL" = xyodl; then
+     case `yodl --version` in
+-      *"version 3."*) YODL_OPTIONS='-L' ;;
++      *"version 2."*) YODL_OPTIONS='-k' ;;
++      *"version 3."*) YODL_OPTIONS='-k -L' ;;
+     esac
+ fi
+ AC_SUBST(YODL_OPTIONS)

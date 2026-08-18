@@ -1,0 +1,20 @@
+commit ff201da5151829ba730f9d5f3e618c434c91ed9d
+Author: Barton E. Schaefer <schaefer@zsh.org>
+Date:   Sun Feb 2 13:19:25 2014 -0800
+
+    32338: create empty help.txt so lack of helpfiles does not break the build
+
+diff --git a/Doc/Makefile.in b/Doc/Makefile.in
+index 50e210fcf..af0a2b5da 100644
+--- a/Doc/Makefile.in
++++ b/Doc/Makefile.in
+@@ -191,7 +191,8 @@ help.txt: zshbuiltins.1
+ 	@-rm -f $(sdir)/help.txt $(sdir)/help/*
+ 	perl $(sdir_top)/Util/helpfiles \
+ 	    $(sdir)/zshbuiltins.1 $(sdir)/help $(sdir)/help.txt \
+-	    || { rm -f $(sdir)/help.txt $(sdir)/help/*; false; }
++	    || rm -f $(sdir)/help.txt $(sdir)/help/*
++	touch $(sdir)/$@
+ 
+ $(MAN): zmacros.yo zman.yo
+ 

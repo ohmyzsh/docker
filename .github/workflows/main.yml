@@ -8,198 +8,296 @@ on:
   schedule:
     - cron: "46 2 * * 1"
 
+# The workflow only needs repository read access; Docker Hub credentials are supplied separately.
 permissions:
   contents: read
 
-env:
-  REGISTRY: "docker.io"
-  DOCKERHUB_ORG: "ohmyzsh"
-  LATEST_ZSH: "5.9"
-  LATEST_OMZ: "master" # TODO: we need to change master with main when migrating the branch
+# Superseded pull request runs are worth cancelling because a full run is expensive.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Workflow:
+#
+#   trigger (manual / push to main / pull request / weekly schedule)
+#                                |
+#                                v
+#                +---------------------------------+
+#                | prepare                         |
+#                | event -> Zsh and OMZ matrices   |
+#                +---------------------------------+
+#                         |                        |
+#                         v                        |
+#   +--------------------------------------+       |
+#   | zsh                                  |       |
+#   | github-builder bake.yml, one call    |       |
+#   | per Zsh version, target: zsh         |       |
+#   +--------------------------------------+       |
+#                    |         |                   |
+#                    v         +-------------------+
+#   +--------------------------------+   |
+#   | omz-latest                     |   v
+#   | latest OMZ x every Zsh version |  +--------------------------------+
+#   +--------------------------------+  | omz-versions                  |
+#                    |                  | historical OMZ x latest Zsh   |
+#                    |                  +--------------------------------+
+#                    +-------------------+
+#                                        v
+#                              +--------------------------------+
+#                              | update-image-readme            |
+#                              | release-only Docker Hub update |
+#                              +--------------------------------+
 jobs:
-  get-omz-versions:
-    name: Get Oh My Zsh versions
+  # Reusable workflow `with:` inputs cannot read the `env` context, so every shared value that
+  # would otherwise live in a workflow-level `env:` block is published as a job output here.
+  prepare:
+    name: Prepare build matrices
+    # Forks cannot publish and would burn their Actions minutes rebuilding 38 Zsh versions.
+    # Skipping this job skips every downstream job; comment it out to test in a fork.
+    if: ${{ github.repository == 'ohmyzsh/docker' }}
     runs-on: ubuntu-latest
     outputs:
-      versions: ${{ steps.versions.outputs.versions }}
+      zsh_versions: ${{ steps.set.outputs.zsh_versions }}
+      omz_versions: ${{ steps.set.outputs.omz_versions }}
+      latest_zsh: ${{ steps.set.outputs.latest_zsh }}
+      latest_omz: ${{ steps.set.outputs.latest_omz }}
+      zsh_image: ${{ steps.set.outputs.zsh_image }}
+      omz_image: ${{ steps.set.outputs.omz_image }}
     steps:
+      # Audit outbound network destinations because this job calls the public GitHub API.
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
-      - name: Get Oh My Zsh versions
-        id: versions
+      - name: Resolve versions and matrices
+        id: set
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LATEST_ZSH: "5.9.2"
+          LATEST_OMZ: master
+          # Familiar form, no docker.io/ prefix: BuildKit normalises a FROM ref before matching it
+          # against named context keys, so a fully qualified key never matches and the ohmyzsh
+          # target silently falls through to a registry pull.
+          ZSH_IMAGE: ohmyzsh/zsh
+          OMZ_IMAGE: ohmyzsh/ohmyzsh
+          GH_TOKEN: ${{ github.token }}
         run: |
-          OMZ_VERSIONS=$(curl -sL https://api.github.com/repos/ohmyzsh/ohmyzsh/tags | jq -c '["${{ env.LATEST_OMZ }}",.[].name]')
-          echo "versions=$OMZ_VERSIONS" >> $GITHUB_OUTPUT
+          set -euo pipefail
 
-  build-omz:
-    name: Build Oh My Zsh Docker image
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: "ohmyzsh/ohmyzsh"
+          # Zsh compatibility surface, newest first. Adding an entry here is all that is needed
+          # to start publishing a new version.
+          all_zsh="$(jq -c . <<'EOF'
+          [
+            "master",
+            "5.9.2", "5.9.1", "5.9",
+            "5.8.1", "5.8",
+            "5.7.1", "5.7",
+            "5.6.2", "5.6.1", "5.6",
+            "5.5.1", "5.5",
+            "5.4.2", "5.4.1", "5.4",
+            "5.3.1", "5.3",
+            "5.2",
+            "5.1.1", "5.1",
+            "5.0.8", "5.0.7", "5.0.6", "5.0.5", "5.0.4",
+            "5.0.3", "5.0.2", "5.0.1", "5.0.0",
+            "4.3.17", "4.3.16", "4.3.15", "4.3.14",
+            "4.3.13", "4.3.12", "4.3.11", "4.3.10"
+          ]
+          EOF
+          )"
+
+          # 4.3.11 keeps the patch and static PCRE backport paths covered on pull requests.
+          pr_zsh="$(jq -cn --arg latest "$LATEST_ZSH" '["master", $latest, "4.3.11"]')"
+
+          # Each build expands into roughly five jobs, so the full compatibility surface is
+          # reserved for the weekly run and manual dispatch.
+          case "$EVENT_NAME" in
+            schedule | workflow_dispatch)
+              zsh_versions="$all_zsh"
+              # The matrix is derived from the upstream tag list so newly published OMZ versions
+              # are included automatically; pagination prevents older versions from disappearing.
+              # `gh api` rejects --slurp together with --jq, so the pages are filtered afterwards.
+              omz_versions="$(gh api repos/ohmyzsh/ohmyzsh/tags \
+                --paginate \
+                --slurp \
+                | jq -c '[.[][] | .name] | map(select(. != env.LATEST_OMZ))')"
+              ;;
+            pull_request)
+              zsh_versions="$pr_zsh"
+              omz_versions='[]'
+              ;;
+            *)
+              zsh_versions="$(jq -cn --arg latest "$LATEST_ZSH" '[$latest]')"
+              omz_versions='[]'
+              ;;
+          esac
+
+          {
+            echo "zsh_versions=$zsh_versions"
+            echo "omz_versions=$omz_versions"
+            echo "latest_zsh=$LATEST_ZSH"
+            echo "latest_omz=$LATEST_OMZ"
+            echo "zsh_image=$ZSH_IMAGE"
+            echo "omz_image=$OMZ_IMAGE"
+          } >> "$GITHUB_OUTPUT"
+
+  # Build and publish the standalone Zsh images.
+  zsh:
+    name: Zsh
+    needs: prepare
+    permissions:
+      contents: read # to fetch the repository content
+      id-token: write # for signing attestations and cache entries with GitHub OIDC
+    strategy:
+      # One failing historical Zsh build should not cancel validation of the other versions.
+      fail-fast: false
+      matrix:
+        zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
+    uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
+    with:
+      output: image
+      target: zsh
+      push: ${{ github.event_name != 'pull_request' }}
+      sbom: true
+      cache: true
+      # Shared with omz-latest so its linked Zsh build is a cache hit instead of a recompile.
+      cache-scope: zsh-${{ matrix.zsh-version }}
+      job-name-prefix: zsh ${{ matrix.zsh-version }}
+      vars: |
+        ZSH_VERSION=${{ matrix.zsh-version }}
+      meta-images: ${{ needs.prepare.outputs.zsh_image }}
+      meta-flavor: latest=false
+      meta-tags: |
+        type=raw,value=${{ matrix.zsh-version }}
+        type=raw,value=latest,enable=${{ matrix.zsh-version == needs.prepare.outputs.latest_zsh }}
+    secrets:
+      registry-auths: |
+        - registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # Build the latest OMZ against every supported Zsh version.
+  omz-latest:
+    name: Oh My Zsh (latest)
     needs:
-      - get-omz-versions
+      - prepare
+      - zsh
+    permissions:
+      contents: read
+      id-token: write
     strategy:
+      fail-fast: false
       matrix:
-        omz-version: ${{ fromJSON(needs.get-omz-versions.outputs.versions) }}
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        with:
-          platforms: linux/amd64,linux/arm64
-      - name: Log in to Docker Hub
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
+        zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
+    uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
+    with:
+      output: image
+      target: ohmyzsh
+      push: ${{ github.event_name != 'pull_request' }}
+      sbom: true
+      cache: true
+      cache-scope: zsh-${{ matrix.zsh-version }}
+      job-name-prefix: omz ${{ matrix.zsh-version }}
+      # Pull requests publish nothing, so LINK_ZSH resolves the base image from the zsh target
+      # instead of the registry, letting a pull request validate OMZ against its own Zsh build.
+      vars: |
+        OMZ_VERSION=${{ needs.prepare.outputs.latest_omz }}
+        ZSH_VERSION=${{ matrix.zsh-version }}
+        ZSH_BASE_IMAGE=${{ needs.prepare.outputs.zsh_image }}:${{ matrix.zsh-version }}
+        LINK_ZSH=${{ github.event_name == 'pull_request' }}
+      meta-images: ${{ needs.prepare.outputs.omz_image }}
+      meta-flavor: latest=false
+      meta-tags: |
+        type=raw,value=${{ needs.prepare.outputs.latest_omz }}-zsh${{ matrix.zsh-version }}
+        type=raw,value=${{ needs.prepare.outputs.latest_omz }},enable=${{ matrix.zsh-version == needs.prepare.outputs.latest_zsh }}
+        type=raw,value=latest,enable=${{ matrix.zsh-version == needs.prepare.outputs.latest_zsh }}
+    secrets:
+      registry-auths: |
+        - registry: docker.io
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Get tags and versions
-        id: tags
-        run: |
-          tags="${{ env.IMAGE_NAME }}:${{ matrix.omz-version }}"
-          tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.omz-version }}"
-          if [ ${{matrix.omz-version }} = ${{ env.LATEST_OMZ }} ]; then
-            tags="${tags},${{ env.IMAGE_NAME }}:latest"
-            tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          fi
-          echo "tags=$tags" >> $GITHUB_OUTPUT
-      - name: Build and push images
-        id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: ohmyzsh
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          build-args: "OMZ_VERSION=${{ matrix.omz-version }}"
-          tags: ${{ steps.tags.outputs.tags }}
-          provenance: mode=max
-          sbom: true
 
-  build-zsh:
-    name: Build Zsh Docker images
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: "ohmyzsh/zsh"
+  # Build every non-latest OMZ tag against the latest supported Zsh image.
+  omz-versions:
+    name: Oh My Zsh (versioned)
+    if: ${{ needs.prepare.outputs.omz_versions != '[]' }}
+    needs:
+      - prepare
+      - zsh
+    permissions:
+      contents: read
+      id-token: write
     strategy:
+      # Historical OMZ versions are independent and can be built in parallel.
+      fail-fast: false
       matrix:
-        zsh-version:
-          - "master"
-          - "5.9"
-          - "5.8.1"
-          - "5.8"
-          - "5.7.1"
-          - "5.7"
-          - "5.6.2"
-          - "5.6.1"
-          - "5.6"
-          - "5.5.1"
-          - "5.5"
-          - "5.4.2"
-          - "5.4.1"
-          - "5.4"
-          - "5.3.1"
-          - "5.3"
-          - "5.2"
-          - "5.1.1"
-          - "5.1"
-          - "5.0.8"
-          - "5.0.7"
-          - "5.0.6"
-          - "5.0.5"
-          - "5.0.4"
-          - "5.0.3"
-          - "5.0.2"
-          - "5.0.1"
-          - "5.0.0"
-          - "4.3.17"
-          - "4.3.16"
-          - "4.3.15"
-          - "4.3.14"
-          - "4.3.13"
-          - "4.3.12"
-          - "4.3.11"
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-        with:
-          platforms: arm64
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-        with:
-          platforms: linux/amd64,linux/arm64
-      - name: Log in to Docker Hub
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
+        omz-version: ${{ fromJSON(needs.prepare.outputs.omz_versions) }}
+    uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
+    with:
+      output: image
+      target: ohmyzsh
+      push: ${{ github.event_name != 'pull_request' }}
+      sbom: true
+      cache: true
+      cache-scope: omz-${{ matrix.omz-version }}
+      job-name-prefix: omz ${{ matrix.omz-version }}
+      vars: |
+        OMZ_VERSION=${{ matrix.omz-version }}
+        ZSH_VERSION=${{ needs.prepare.outputs.latest_zsh }}
+        ZSH_BASE_IMAGE=${{ needs.prepare.outputs.zsh_image }}:${{ needs.prepare.outputs.latest_zsh }}
+        LINK_ZSH=${{ github.event_name == 'pull_request' }}
+      meta-images: ${{ needs.prepare.outputs.omz_image }}
+      meta-flavor: latest=false
+      meta-tags: |
+        type=raw,value=${{ matrix.omz-version }}-zsh${{ needs.prepare.outputs.latest_zsh }}
+        type=raw,value=${{ matrix.omz-version }}
+    secrets:
+      registry-auths: |
+        - registry: docker.io
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Get tags and versions
-        id: tags
-        run: |
-          tags="${{ env.IMAGE_NAME }}:${{ matrix.zsh-version }}"
-          tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.zsh-version }}"
-          if [ ${{matrix.zsh-version }} = ${{ env.LATEST_ZSH }} ]; then
-            tags="${tags},${{ env.IMAGE_NAME }}:latest"
-            tags="${tags},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          fi
-          echo "tags=$tags" >> $GITHUB_OUTPUT
-      - name: Build and push images
-        id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-        with:
-          context: zsh
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          build-args: "ZSH_VERSION=${{ matrix.zsh-version }}"
-          tags: ${{ steps.tags.outputs.tags }}
-          provenance: mode=max
-          sbom: true
 
+  # Update Docker Hub descriptions only after all publishing jobs succeed.
   update-image-readme:
     needs:
-      - build-zsh
-      - build-omz
+      - zsh
+      - omz-latest
+      - omz-versions
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'pull_request' }}
+    # PRs never publish Docker Hub images, so they must not update Docker Hub descriptions.
+    if: >-
+      ${{
+        always() &&
+        github.event_name != 'pull_request' &&
+        needs.zsh.result == 'success' &&
+        needs.omz-latest.result == 'success' &&
+        (needs.omz-versions.result == 'success' ||
+          needs.omz-versions.result == 'skipped')
+      }}
     steps:
+      # Keep network access auditable for the Docker Hub API call made by the script.
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
+      # Use the exact workflow revision when updating image documentation.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Each image directory owns its README; missing files are warnings because other images may exist.
       - name: Update image READMEs
         env:
           DH_USERNAME: ${{ secrets.DOCKERHUB_USER }}
           DH_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           for image in */Dockerfile; do
-            image="$(basename $(dirname $image))"
+            image="$(basename "$(dirname "$image")")"
 
             if ! test -f "$image/README.md"; then
               echo "::warning ::missing README.md file at /$image"
               continue
             fi
 
-            node .github/scripts/update-image-readme.js "${{ env.DOCKERHUB_ORG }}/$image" "$image/README.md"
+            node .github/scripts/update-image-readme.js "ohmyzsh/$image" "$image/README.md"
           done

@@ -1,0 +1,23 @@
+commit 6318e041d17a3dc82589cf324afa115b6c907dfe
+Author: Peter Stephenson <pws@users.sourceforge.net>
+Date:   Thu Jan 6 21:31:06 2011 +0000
+
+    unposted: fix argument type for write_loop()
+
+diff --git a/Src/utils.c b/Src/utils.c
+index a4cd67812..844a43e1b 100644
+--- a/Src/utils.c
++++ b/Src/utils.c
+@@ -2405,8 +2405,10 @@ getquery(char *valid_chars, int purge)
+ 	}
+ 	zbeep();
+     }
+-    if (c >= 0)
+-	write_loop(SHTTY, &c, 1);
++    if (c >= 0) {
++	char buf = (char)c;
++	write_loop(SHTTY, &buf, 1);
++    }
+     if (nl)
+ 	write_loop(SHTTY, "\n", 1);
+ 

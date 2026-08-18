@@ -1,0 +1,34 @@
+commit cf02c2f0f30b56c24a7357043c098f59c25191ee
+Author: m0viefreak <m0viefreak.cm@googlemail.com>
+Date:   Mon Feb 17 05:07:59 2014 +0100
+
+    prefer col -bx to colcrt in helpfiles
+
+diff --git a/Util/helpfiles b/Util/helpfiles
+index 9909a1d26..699ca8321 100755
+--- a/Util/helpfiles
++++ b/Util/helpfiles
+@@ -67,17 +67,17 @@ if(system('man ' . $args) || !(-s $mantmp)) {
+ }
+ $args = "$mantmp >$coltmp";
+ unlink($coltmp);
+-&Info('attempting colcrt - ', $args);
+-if(system('colcrt - ' . $args) || !(-s $coltmp)) {
+-    unlink($coltmp);
+-    &Info('attempting col -bx <', $args);
++&Info('attempting col -bx <', $args);
+ # The x is necessary so that spaces don't turn into tabs, which messes
+ # up the calculations of indentation on machines which randomly wrap lines
+ # round to the previous line (so you see what we're up against).
+-    if(system('col -bx <' . $args) || !(-s $coltmp)) {
++if(system('col -bx <' . $args) || !(-s $coltmp)) {
++    unlink($coltmp);
++    &Info('attempting colcrt - ', $args);
++    if(system('colcrt - ' . $args) || !(-s $coltmp)) {
+         unlink($mantmp);
+         unlink($coltmp);
+-        &Die('colcrt and col -bx both failed');
++        &Die('col -bx and colcrt - both failed');
+     }
+ }
+ unlink($mantmp) || &Die('cannot remove tempfile ', $mantmp);
