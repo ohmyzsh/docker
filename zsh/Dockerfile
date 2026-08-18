@@ -25,8 +25,6 @@ RUN apt-get update; \
       texinfo \
       yodl
 
-COPY patches/ /tmp/zsh-patches/
-
 WORKDIR /usr/src
 
 ARG ZSH_VERSION
@@ -58,6 +56,8 @@ RUN if [ "$ZSH_VERSION" = "master" ]; then \
     git clone --depth 1 --branch "$ZSH_REF" https://github.com/zsh-users/zsh.git zsh
 
 WORKDIR /usr/src/zsh
+
+COPY patches/ /tmp/zsh-patches/
 
 RUN for patch_file in /tmp/zsh-patches/*.patch; do \
       patch -N -p1 -i "$patch_file" \
