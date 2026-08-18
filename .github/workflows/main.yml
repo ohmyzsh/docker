@@ -52,6 +52,9 @@ jobs:
   # would otherwise live in a workflow-level `env:` block is published as a job output here.
   prepare:
     name: Prepare build matrices
+    # Forks cannot publish and would burn their Actions minutes rebuilding 38 Zsh versions.
+    # Skipping this job skips every downstream job; comment it out to test in a fork.
+    if: ${{ github.repository == 'ohmyzsh/docker' }}
     runs-on: ubuntu-latest
     outputs:
       zsh_versions: ${{ steps.set.outputs.zsh_versions }}
