@@ -203,7 +203,7 @@ jobs:
       meta-images: ${{ needs.prepare.outputs.omz_image }}
       meta-flavor: latest=false
       meta-tags: |
-        type=raw,value=${{ matrix.zsh-version }}-${{ needs.prepare.outputs.latest_omz }}
+        type=raw,value=${{ needs.prepare.outputs.latest_omz }}-zsh${{ matrix.zsh-version }}
         type=raw,value=${{ needs.prepare.outputs.latest_omz }},enable=${{ matrix.zsh-version == needs.prepare.outputs.latest_zsh }}
         type=raw,value=latest,enable=${{ matrix.zsh-version == needs.prepare.outputs.latest_zsh }}
     secrets:
@@ -244,7 +244,7 @@ jobs:
       meta-images: ${{ needs.prepare.outputs.omz_image }}
       meta-flavor: latest=false
       meta-tags: |
-        type=raw,value=${{ needs.prepare.outputs.latest_zsh }}-${{ matrix.omz-version }}
+        type=raw,value=${{ matrix.omz-version }}-zsh${{ needs.prepare.outputs.latest_zsh }}
         type=raw,value=${{ matrix.omz-version }}
     secrets:
       registry-auths: |

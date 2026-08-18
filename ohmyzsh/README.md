@@ -10,5 +10,5 @@ Example:
 - `ohmyzsh/ohmyzsh:master`: contains the latest stable Zsh version as well
   as the latest commit of the Oh My Zsh repository.
 
-- `ohmyzsh/ohmyzsh:5.9.1-master`: contains Zsh 5.9.1 as well as the latest
+- `ohmyzsh/ohmyzsh:master-zsh5.9.1`: contains Zsh 5.9.1 as well as the latest
   commit of the Oh My Zsh repository.
