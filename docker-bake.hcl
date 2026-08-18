@@ -7,7 +7,9 @@ variable "OMZ_VERSION" {
 }
 
 variable "ZSH_BASE_IMAGE" {
-  default = "docker.io/ohmyzsh/zsh:latest"
+  # Familiar form is required: BuildKit normalises a FROM ref before matching named context keys,
+  # so a docker.io/-qualified value would silently skip the LINK_ZSH link and pull from Docker Hub.
+  default = "ohmyzsh/zsh:latest"
 }
 
 # When true, ZSH_BASE_IMAGE is satisfied by the zsh target instead of being pulled

@@ -76,8 +76,11 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           LATEST_ZSH: "5.9.2"
           LATEST_OMZ: master
-          ZSH_IMAGE: docker.io/ohmyzsh/zsh
-          OMZ_IMAGE: docker.io/ohmyzsh/ohmyzsh
+          # Familiar form, no docker.io/ prefix: BuildKit normalises a FROM ref before matching it
+          # against named context keys, so a fully qualified key never matches and the ohmyzsh
+          # target silently falls through to a registry pull.
+          ZSH_IMAGE: ohmyzsh/zsh
+          OMZ_IMAGE: ohmyzsh/ohmyzsh
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail

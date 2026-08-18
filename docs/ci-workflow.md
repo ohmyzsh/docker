@@ -57,8 +57,8 @@ in a workflow-level `env:` block are published as job outputs instead:
 | `omz_versions` | `[]` |
 | `latest_zsh` | `5.9.2` |
 | `latest_omz` | `master` |
-| `zsh_image` | `docker.io/ohmyzsh/zsh` |
-| `omz_image` | `docker.io/ohmyzsh/ohmyzsh` |
+| `zsh_image` | `ohmyzsh/zsh` |
+| `omz_image` | `ohmyzsh/ohmyzsh` |
 
 The Zsh version list is inline in this job's script. Adding a version there is all that is needed
 to start publishing it.
@@ -89,6 +89,11 @@ contexts = LINK_ZSH == "true" ? { (ZSH_BASE_IMAGE) = "target:zsh" } : {}
 
 It is `true` only on `pull_request`. On publishing events the base image is pulled from Docker Hub,
 where the `zsh` job has already pushed it.
+
+`ZSH_BASE_IMAGE` must be in *familiar* form (`ohmyzsh/zsh:5.9.2`, never
+`docker.io/ohmyzsh/zsh:5.9.2`). BuildKit normalises a `FROM` reference before matching it against
+named context keys, so a fully qualified key silently fails to match and the build falls through to
+a registry pull — which cannot work on a pull request, because nothing has been pushed.
 
 `bake.yml` permits exactly one target per call, plus any target reachable through a
 `target:`-valued named context — which is why there is no `group "default"` in the bake file.
@@ -152,7 +157,7 @@ docker buildx bake --print ohmyzsh
 ZSH_VERSION=5.9.2 docker buildx bake zsh
 
 # Build Oh My Zsh against a locally built Zsh, as pull requests do
-LINK_ZSH=true ZSH_VERSION=5.9.2 ZSH_BASE_IMAGE=docker.io/ohmyzsh/zsh:5.9.2 \
+LINK_ZSH=true ZSH_VERSION=5.9.2 ZSH_BASE_IMAGE=ohmyzsh/zsh:5.9.2 \
   docker buildx bake ohmyzsh
 
 # Lint the workflow
@@ -179,6 +184,9 @@ target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.
   real runner accepts the construct.
 - `gh api` rejects `--slurp` together with `--jq`, so `prepare` slurps first and filters with a
   separate `jq`.
+- Named context keys must use the familiar image form. `docker.io/ohmyzsh/zsh:5.9.2` as a key does
+  not match `FROM docker.io/ohmyzsh/zsh:5.9.2`; `ohmyzsh/zsh:5.9.2` does. This failure is silent —
+  the build just pulls from the registry instead.
 - `harden-runner` cannot be applied to the build jobs, because a caller cannot inject steps into a
   reusable workflow. It runs only in `prepare` and `update-image-readme`.
 

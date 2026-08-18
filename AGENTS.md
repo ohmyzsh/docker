@@ -53,6 +53,10 @@ Breaking any of these breaks CI in ways local linting will not catch.
 5. **Image folders are discovered by globbing `*/Dockerfile`.** A new image folder needs a
    `README.md` or `update-image-readme` emits a warning.
 6. **Keep actions SHA-pinned** with a trailing version comment, including the reusable workflow.
+7. **Image names stay in familiar form** (`ohmyzsh/zsh`, never `docker.io/ohmyzsh/zsh`). BuildKit
+   normalises a `FROM` ref before matching named context keys, so a fully qualified key fails to
+   match *silently* and the `ohmyzsh` build falls through to a registry pull. This broke every
+   `omz-latest` job once already.
 
 ## Decisions and accepted tradeoffs
 
@@ -67,7 +71,11 @@ target so they validate against their own Zsh build; publishing events pull the 
 image from Docker Hub. The alternative — always linking — would rebuild Zsh twice per version.
 Verified: buildx keeps `output: cacheonly` on a linked dependency target even under
 github-builder's `*.output` wildcard override, so the linked Zsh is never published under the
-`ohmyzsh` name.
+`ohmyzsh` name. The linked ref must be in familiar form (see invariant 7).
+
+**Single image name per repository.** The previous workflow pushed both `ohmyzsh/zsh:x` and
+`docker.io/ohmyzsh/zsh:x` — the same registry twice. Collapsed to the familiar form only; no
+user-visible change, and it is also what named context matching requires.
 
 **Full matrix only on schedule and dispatch.** 38 versions × ~5 jobs × two matrices is a large
 run. Pushes to `main` build only the latest Zsh; pull requests build three versions
@@ -81,9 +89,6 @@ Deferred, not rejected.
 
 **Zsh version list inline in the workflow.** A `prepare` job is required regardless, so a separate
 data file would add a moving part without removing one. Tradeoff: version bumps touch CI YAML.
-
-**Single `docker.io/...` image name.** The previous workflow pushed both `ohmyzsh/zsh:x` and
-`docker.io/ohmyzsh/zsh:x` — the same registry twice. Collapsed to one; no user-visible change.
 
 **Tag format `<omz-version>-zsh<zsh-version>`.** Changed from the older `<zsh>-<omz>` ordering.
 Note this is a **breaking rename**: previously published tags in the old format remain on Docker
