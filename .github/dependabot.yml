@@ -3,4 +3,12 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: "weekly"
+      day: "sunday"
+    groups:
+      gha-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
