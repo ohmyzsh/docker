@@ -13,17 +13,25 @@ The workflow is pinned to `bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3` (v
 
 ## Triggers and scope
 
-Each build call expands into roughly five GitHub jobs, so the full 38-version Zsh matrix is
-deliberately not run on every event.
+Each build call expands into five GitHub jobs, of which only two build anything. The other three
+(`registry-identities`, `prepare`, `finalize`) are fixed scaffolding that `bake.yml` spends per
+call, and `prepare` alone takes about as long as a build. That overhead cannot be amortised: the
+reusable workflow builds exactly one target and fans out only over platforms, so N versions always
+cost N calls. Scope is therefore managed by limiting how many versions each event builds.
 
-| Trigger | Zsh versions built | Historical OMZ versions | Pushes to Docker Hub |
-| --- | --- | --- | --- |
-| `schedule` (Mon 02:46 UTC) | all 38 | all upstream tags | yes |
-| `workflow_dispatch` | all 38 | all upstream tags | yes |
-| `push` to `main` | latest only (`5.9.2`) | none | yes |
-| `pull_request` | `master`, `5.9.2`, `4.3.11` | none | no |
+| Trigger | Zsh versions built | Historical OMZ versions | Pushes to Docker Hub | Approx. jobs |
+| --- | --- | --- | --- | --- |
+| `workflow_dispatch` | all 38 | all upstream tags | yes | ~380 |
+| `schedule` (Mon 02:46 UTC) | `master`, latest, + a quarter of the tail | all upstream tags | yes | ~110 |
+| `push` to `main` | latest only (`5.9.2`) | none | yes | ~10 |
+| `pull_request` | `master`, `5.9.2`, `4.3.11` | none | no | ~30 |
 
-Historical Zsh tags are therefore refreshed weekly, not on every merge.
+The scheduled run shards the historical versions over a four-week rotation keyed on the ISO week
+number. `master` and the latest release are rebuilt every week; every other version is refreshed
+once a month. Use `workflow_dispatch` to force a full rebuild.
+
+Tradeoff: a regression affecting only an old version can now sit undetected for up to a month
+rather than a week. Reverting is a one-line change — make the `schedule` case use `$all_zsh`.
 
 The workflow does not run in forks: the `prepare` job carries
 `if: github.repository == 'ohmyzsh/docker'`, and every other job depends on it. Comment that line
@@ -167,7 +175,8 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest .github/workflo
 ## Common changes
 
 **Add a Zsh version** — add it to the `all_zsh` list in the `prepare` job. If it becomes the newest
-stable release, also update `LATEST_ZSH` in that job's `env:` block.
+stable release, also update `LATEST_ZSH` in that job's `env:` block. New versions join the shard
+rotation automatically; run `workflow_dispatch` if you want it published immediately.
 
 **Add an image** — create a top-level folder with a `Dockerfile` and `README.md`, add a matching
 target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.
@@ -184,6 +193,12 @@ target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.
   real runner accepts the construct.
 - `gh api` rejects `--slurp` together with `--jq`, so `prepare` slurps first and filters with a
   separate `jq`.
+- **Docker Hub 429s in `finalize`.** A bare `429 Too Many Requests` with no documentation link is
+  Docker Hub's *abuse* rate limit, not the pull rate limit — HEAD requests do not count towards
+  pull limits at all. The abuse limit is applied per IPv4 address or IPv6 /64 subnet and
+  ["applies to all users equally regardless of account level"][abuse-limit], so a paid Docker Hub
+  subscription does not raise it. GitHub-hosted runners share subnets, so the mitigation is to cap
+  concurrency: each build matrix sets `max-parallel: 6`. Raise it only if 429s stay away.
 - Named context keys must use the familiar image form. `docker.io/ohmyzsh/zsh:5.9.2` as a key does
   not match `FROM docker.io/ohmyzsh/zsh:5.9.2`; `ohmyzsh/zsh:5.9.2` does. This failure is silent —
   the build just pulls from the registry instead.
@@ -191,3 +206,4 @@ target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.
   reusable workflow. It runs only in `prepare` and `update-image-readme`.
 
 [github-builder]: https://github.com/docker/github-builder
+[abuse-limit]: https://docs.docker.com/docker-hub/usage/#abuse-rate-limit

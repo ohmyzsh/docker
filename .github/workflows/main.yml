@@ -76,9 +76,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           LATEST_ZSH: "5.9.2"
           LATEST_OMZ: master
-          # Familiar form, no docker.io/ prefix: BuildKit normalises a FROM ref before matching it
-          # against named context keys, so a fully qualified key never matches and the ohmyzsh
-          # target silently falls through to a registry pull.
           ZSH_IMAGE: ohmyzsh/zsh
           OMZ_IMAGE: ohmyzsh/ohmyzsh
           GH_TOKEN: ${{ github.token }}
@@ -110,14 +107,35 @@ jobs:
           # 4.3.11 keeps the patch and static PCRE backport paths covered on pull requests.
           pr_zsh="$(jq -cn --arg latest "$LATEST_ZSH" '["master", $latest, "4.3.11"]')"
 
-          # Each build expands into roughly five jobs, so the full compatibility surface is
-          # reserved for the weekly run and manual dispatch.
+          # Each version costs a whole github-builder call, and a call spends three scaffolding
+          # jobs (registry-identities, prepare, finalize) on top of one build job per platform.
+          # That overhead is per call and cannot be amortised, because bake.yml builds exactly one
+          # target and fans out only over platforms. So the scheduled run refreshes master and the
+          # latest release every week and rotates the historical tail over four weeks instead;
+          # workflow_dispatch still rebuilds everything on demand.
+          week="$(date -u +%V)"
+          shard=$(( ${week#0} % 4 )) # strip the leading zero so weeks 08 and 09 are not read as octal
+          scheduled_zsh="$(printf '%s' "$all_zsh" | jq -c \
+            --arg latest "$LATEST_ZSH" \
+            --argjson shard "$shard" '
+              ["master", $latest] as $always
+              | map(select(. as $v | $always | index($v) == null)) as $historical
+              | $always + ($historical | to_entries | map(select(.key % 4 == $shard) | .value))
+            ')"
+
           case "$EVENT_NAME" in
-            schedule | workflow_dispatch)
+            workflow_dispatch)
               zsh_versions="$all_zsh"
               # The matrix is derived from the upstream tag list so newly published OMZ versions
               # are included automatically; pagination prevents older versions from disappearing.
               # `gh api` rejects --slurp together with --jq, so the pages are filtered afterwards.
+              omz_versions="$(gh api repos/ohmyzsh/ohmyzsh/tags \
+                --paginate \
+                --slurp \
+                | jq -c '[.[][] | .name] | map(select(. != env.LATEST_OMZ))')"
+              ;;
+            schedule)
+              zsh_versions="$scheduled_zsh"
               omz_versions="$(gh api repos/ohmyzsh/ohmyzsh/tags \
                 --paginate \
                 --slurp \
@@ -152,6 +170,9 @@ jobs:
     strategy:
       # One failing historical Zsh build should not cancel validation of the other versions.
       fail-fast: false
+      # Docker Hub's abuse rate limit is per IP subnet and ignores account level, and GitHub-hosted
+      # runners share subnets, so unbounded fan-out gets the finalize manifest requests 429ed.
+      max-parallel: 6
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
@@ -188,6 +209,7 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
+      max-parallel: 6 # see the zsh job
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0
@@ -231,6 +253,7 @@ jobs:
     strategy:
       # Historical OMZ versions are independent and can be built in parallel.
       fail-fast: false
+      max-parallel: 6 # see the zsh job
       matrix:
         omz-version: ${{ fromJSON(needs.prepare.outputs.omz_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3 # v1.16.0

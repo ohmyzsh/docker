@@ -77,11 +77,21 @@ github-builder's `*.output` wildcard override, so the linked Zsh is never publis
 `docker.io/ohmyzsh/zsh:x` — the same registry twice. Collapsed to the familiar form only; no
 user-visible change, and it is also what named context matching requires.
 
-**Full matrix only on schedule and dispatch.** 38 versions × ~5 jobs × two matrices is a large
-run. Pushes to `main` build only the latest Zsh; pull requests build three versions
-(`master`, latest, and `4.3.11`, which exercises the patch and static PCRE backport paths).
-Tradeoff: historical tags are refreshed weekly rather than per merge, so a regression affecting
-only old versions can sit undetected for up to a week.
+**Full matrix only on dispatch; the schedule shards it.** `bake.yml` builds exactly one target and
+fans out only over platforms, so N versions cost N calls, and each call spends three scaffolding
+jobs (`registry-identities`, `prepare`, `finalize`) on top of one build job per platform — 60% of
+all jobs, with `prepare` costing about as much as a build. This overhead is per call and cannot be
+amortised from the caller side; a caller cannot inject a matrix into a reusable workflow's jobs.
+The only lever is fewer calls. So pushes to `main` build only the latest Zsh, pull requests build
+three versions (`master`, latest, and `4.3.11`, which exercises the patch and static PCRE backport
+paths), and the weekly run rebuilds `master` + latest plus a quarter of the historical tail on a
+four-week rotation. `workflow_dispatch` still builds everything.
+
+Tradeoff: historical tags are refreshed monthly rather than weekly, so a regression affecting only
+old versions can sit undetected for up to a month. Rejected alternatives: `distribute: false`
+saves one job per call but forces QEMU-emulated arm64 on a from-source compile; dropping
+github-builder for a hand-rolled `docker/bake-action` matrix would cut jobs the most but discards
+signed provenance, SBOMs, and the trusted-builder property.
 
 **Docker Hub PAT rather than OIDC.** `registry-identities` with `type: dockerhub` would remove the
 long-lived token, but requires an OIDC connection configured in the Docker Hub organisation.
@@ -103,6 +113,10 @@ rather than an error.
   `Unexpected type 'BasicExpressionToken' ... 'step env'` three times. The source is line 1051 of
   Docker's `bake.yml`, once per call site — not this repository. `actionlint` is clean.
 - **`gh api` rejects `--slurp` with `--jq`.** `prepare` slurps, then filters with a separate `jq`.
+- **Bare `429`s from Docker Hub are the abuse rate limit, not the pull limit.** It is per IP subnet
+  and identical for every account tier, so upgrading the Docker Hub plan will not help; HEAD
+  requests do not count towards pull limits either. Mitigated with `max-parallel: 6` on each build
+  matrix. Do not remove that without watching for 429s in `finalize`.
 - **Forks are blocked** by `if: github.repository == 'ohmyzsh/docker'` on `prepare`. Comment it out
   to test in a fork.
 
