@@ -22,16 +22,54 @@ cost N calls. Scope is therefore managed by limiting how many versions each even
 | Trigger | Zsh versions built | Historical OMZ versions | Pushes to Docker Hub | Approx. jobs |
 | --- | --- | --- | --- | --- |
 | `workflow_dispatch` | all 38 | all upstream tags | yes | ~380 |
-| `schedule` (Mon 02:46 UTC) | `master`, latest, + a quarter of the tail | all upstream tags | yes | ~110 |
-| `push` to `main` | latest only (`5.9.2`) | none | yes | ~10 |
+| `push` to `main` | all 38 | none | yes | ~380 |
 | `pull_request` | `master`, `5.9.2`, `4.3.11` | none | no | ~30 |
+| `repository_dispatch` (`omz-release`) | none | the released tag | yes | ~5 |
 
-The scheduled run shards the historical versions over a four-week rotation keyed on the ISO week
-number. `master` and the latest release are rebuilt every week; every other version is refreshed
-once a month. Use `workflow_dispatch` to force a full rebuild.
+There is no scheduled run. Rebuilds are driven by the two things that actually invalidate an
+image:
 
-Tradeoff: a regression affecting only an old version can now sit undetected for up to a month
-rather than a week. Reverting is a one-line change — make the `schedule` case use `$all_zsh`.
+- **The Debian base image.** Both `FROM` lines in [`zsh/Dockerfile`](../zsh/Dockerfile) pin
+  `debian:trixie-slim` by digest, and `docker` is enabled in
+  [`dependabot.yml`](../.github/dependabot.yml) for `/zsh`. Dependabot opens a pull request when
+  the digest moves; merging it is a push to `main`, which rebuilds all 38 versions. A `push` must
+  build the full matrix for exactly this reason — a base-image bump invalidates every version, not
+  just the newest.
+- **An Oh My Zsh release.** `repository_dispatch` with type `omz-release`, sent from
+  `ohmyzsh/ohmyzsh`, builds the newly released tag against the latest Zsh. The Zsh layer beneath it
+  is untouched, so the `zsh` and `omz-latest` jobs are skipped.
+
+Debian republishes `trixie-slim` roughly every three weeks (measured over the last year: ~19 days
+mean, never more than 22), so a weekly Dependabot check never misses a snapshot, and the result is
+about 17–20 full rebuilds a year instead of 52 partial ones. Dependabot applies a default 3-day
+cooldown before proposing a new digest.
+
+Tradeoffs:
+
+- Nothing rebuilds between snapshots, so an APT security update published inside a snapshot window
+  is not picked up until the next Debian snapshot or a manual `workflow_dispatch`.
+- Every merge to `main` now costs a full rebuild, including documentation-only merges. That is the
+  price of not having to decide, per commit, whether a change affects all versions.
+
+### Sending the release event
+
+Dependabot has no equivalent for upstream Git tags, so `ohmyzsh/ohmyzsh` has to send the event. Add
+a workflow there that fires on `release: published`:
+
+```yaml
+- run: |
+    gh api repos/ohmyzsh/docker/dispatches \
+      --field event_type=omz-release \
+      --field 'client_payload[tag]=${{ github.event.release.tag_name }}'
+  env:
+    GH_TOKEN: ${{ secrets.OHMYZSH_DOCKER_DISPATCH_TOKEN }}
+```
+
+The token needs `contents: write` on `ohmyzsh/docker`. A payload without a `tag` falls back to
+rebuilding every upstream tag.
+
+**`ohmyzsh/ohmyzsh` currently has no git tags**, so this path is dormant until releases resume —
+the same reason `omz-versions` always skips today.
 
 The workflow does not run in forks: the `prepare` job carries
 `if: github.repository == 'ohmyzsh/docker'`, and every other job depends on it. Comment that line
@@ -54,6 +92,8 @@ prepare ──┬─> zsh ──┬─> omz-latest ──┐
 | `omz-versions` | Builds each historical OMZ tag against the latest Zsh |
 | `update-image-readme` | Pushes image `README.md` files to Docker Hub as repository descriptions |
 
+Jobs whose matrix resolves to `[]` are skipped, so which of these run depends on the event.
+
 ### `prepare`
 
 Reusable-workflow `with:` inputs cannot read the `env` context, so values that would normally sit
@@ -71,8 +111,13 @@ in a workflow-level `env:` block are published as job outputs instead:
 The Zsh version list is inline in this job's script. Adding a version there is all that is needed
 to start publishing it.
 
-`omz_versions` comes from the upstream tag list. **`ohmyzsh/ohmyzsh` currently has no git tags**,
-so this is always `[]` and `omz-versions` always skips — the job exists for when tags reappear.
+`omz_versions` comes from the upstream tag list, except on `repository_dispatch`, where it is just
+the released tag from `client_payload.tag`. **`ohmyzsh/ohmyzsh` currently has no git tags**, so on
+every other event this is `[]` and `omz-versions` always skips — the job exists for when tags
+reappear.
+
+When `zsh_versions` is `[]` the `zsh` and `omz-latest` jobs skip, so `omz-versions` and
+`update-image-readme` treat a skipped upstream job as success.
 
 ## Bake targets
 
@@ -175,8 +220,13 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest .github/workflo
 ## Common changes
 
 **Add a Zsh version** — add it to the `all_zsh` list in the `prepare` job. If it becomes the newest
-stable release, also update `LATEST_ZSH` in that job's `env:` block. New versions join the shard
-rotation automatically; run `workflow_dispatch` if you want it published immediately.
+stable release, also update `LATEST_ZSH` in that job's `env:` block. It is published on the next
+push to `main`; run `workflow_dispatch` if you want it published immediately.
+
+**Change the Debian base** — edit both `FROM` lines in `zsh/Dockerfile` together, keeping the
+digest pin. Dependabot only tracks digests it can see, so dropping the `@sha256:` suffix silently
+disables base-image updates: `debian:trixie-slim` carries no comparable version, so with no digest
+Dependabot finds nothing to update and opens no pull requests at all.
 
 **Add an image** — create a top-level folder with a `Dockerfile` and `README.md`, add a matching
 target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.

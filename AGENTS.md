@@ -57,6 +57,10 @@ Breaking any of these breaks CI in ways local linting will not catch.
    normalises a `FROM` ref before matching named context keys, so a fully qualified key fails to
    match *silently* and the `ohmyzsh` build falls through to a registry pull. This broke every
    `omz-latest` job once already.
+8. **Both `FROM` lines in `zsh/Dockerfile` keep their `@sha256:` digest pin.** They are the only
+   thing Dependabot can act on: `debian:trixie-slim` has no comparable version, so an unpinned ref
+   yields no pull requests at all — silently, since nothing fails. Dropping the pin removes
+   base-image rebuilds entirely.
 
 ## Decisions and accepted tradeoffs
 
@@ -77,21 +81,31 @@ github-builder's `*.output` wildcard override, so the linked Zsh is never publis
 `docker.io/ohmyzsh/zsh:x` — the same registry twice. Collapsed to the familiar form only; no
 user-visible change, and it is also what named context matching requires.
 
-**Full matrix only on dispatch; the schedule shards it.** `bake.yml` builds exactly one target and
-fans out only over platforms, so N versions cost N calls, and each call spends three scaffolding
-jobs (`registry-identities`, `prepare`, `finalize`) on top of one build job per platform — 60% of
-all jobs, with `prepare` costing about as much as a build. This overhead is per call and cannot be
+**Rebuilds are event-driven, not scheduled.** `bake.yml` builds exactly one target and fans out
+only over platforms, so N versions cost N calls, and each call spends three scaffolding jobs
+(`registry-identities`, `prepare`, `finalize`) on top of one build job per platform — 60% of all
+jobs, with `prepare` costing about as much as a build. This overhead is per call and cannot be
 amortised from the caller side; a caller cannot inject a matrix into a reusable workflow's jobs.
-The only lever is fewer calls. So pushes to `main` build only the latest Zsh, pull requests build
-three versions (`master`, latest, and `4.3.11`, which exercises the patch and static PCRE backport
-paths), and the weekly run rebuilds `master` + latest plus a quarter of the historical tail on a
-four-week rotation. `workflow_dispatch` still builds everything.
+The only lever is fewer calls, so the question is when to spend them, not how many to spend.
 
-Tradeoff: historical tags are refreshed monthly rather than weekly, so a regression affecting only
-old versions can sit undetected for up to a month. Rejected alternatives: `distribute: false`
-saves one job per call but forces QEMU-emulated arm64 on a from-source compile; dropping
-github-builder for a hand-rolled `docker/bake-action` matrix would cut jobs the most but discards
-signed provenance, SBOMs, and the trusted-builder property.
+The answer is: only when something actually invalidates an image. Dependabot watches the pinned
+`debian:trixie-slim` digest and its pull request, once merged, is a push to `main` that rebuilds
+all 38 versions — which is why `push` builds the full matrix and not just the newest version.
+`repository_dispatch` (`omz-release`) from `ohmyzsh/ohmyzsh` rebuilds only the released OMZ tag,
+since a release leaves the Zsh layer untouched. Pull requests still build three versions
+(`master`, latest, and `4.3.11`, which exercises the patch and static PCRE backport paths).
+
+This replaced a weekly cron that refreshed `master` + latest and a quarter of the historical tail
+on a four-week rotation. Measured over the last year, Debian republishes `trixie-slim` every ~19
+days (never more than 22), so the new scheme costs ~17–20 full rebuilds a year against 52 partial
+ones, and every published tag now carries the current base rather than one up to a month stale.
+
+Tradeoffs: an APT security update landing between Debian snapshots is not picked up until the next
+snapshot, where the cron would have caught it within a week; and every merge to `main` costs a
+full rebuild, including documentation-only ones. Rejected alternatives: `distribute: false` saves
+one job per call but forces QEMU-emulated arm64 on a from-source compile; dropping github-builder
+for a hand-rolled `docker/bake-action` matrix would cut jobs the most but discards signed
+provenance, SBOMs, and the trusted-builder property.
 
 **Docker Hub PAT rather than OIDC.** `registry-identities` with `type: dockerhub` would remove the
 long-lived token, but requires an OIDC connection configured in the Docker Hub organisation.
@@ -108,7 +122,8 @@ rather than an error.
 ## Known quirks
 
 - **`omz-versions` never runs.** `ohmyzsh/ohmyzsh` has no git tags, so its matrix is `[]` and the
-  job always skips. The tagging scheme is currently dead code, kept for when tags reappear.
+  job always skips. The tagging scheme — and the `omz-release` `repository_dispatch` trigger that
+  feeds it — is currently dead code, kept for when tags reappear.
 - **Three phantom editor errors.** The VS Code GitHub Actions extension flags
   `Unexpected type 'BasicExpressionToken' ... 'step env'` three times. The source is line 1051 of
   Docker's `bake.yml`, once per call site — not this repository. `actionlint` is clean.
