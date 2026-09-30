@@ -12,3 +12,14 @@ updates:
         update-types:
           - minor
           - patch
+
+  # Only /zsh: the ohmyzsh image builds `FROM ${ZSH_BASE_IMAGE}`, which Dependabot cannot resolve,
+  # and its base is this repository's own image anyway. Merging the pull request raised here is what
+  # rebuilds every published tag, so this replaces the workflow's old weekly schedule.
+  - package-ecosystem: docker
+    directory: /zsh
+    # debian:trixie-slim is republished roughly every three weeks, so a weekly check never misses a
+    # snapshot. Dependabot only notices at all because both `FROM` lines pin a digest.
+    schedule:
+      interval: "weekly"
+      day: "sunday"
