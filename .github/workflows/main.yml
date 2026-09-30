@@ -28,27 +28,33 @@ concurrency:
 #                | prepare                         |
 #                | event -> Zsh and OMZ matrices   |
 #                +---------------------------------+
-#                         |                        |
-#                         v                        |
-#   +--------------------------------------+       |
-#   | zsh                                  |       |
-#   | github-builder bake.yml, one call    |       |
-#   | per Zsh version, target: zsh         |       |
-#   +--------------------------------------+       |
-#                    |         |                   |
-#                    v         +-------------------+
-#   +--------------------------------+   |
-#   | omz-latest                     |   v
-#   | latest OMZ x every Zsh version |  +--------------------------------+
-#   +--------------------------------+  | omz-versions                  |
-#                    |                  | historical OMZ x latest Zsh   |
-#                    |                  +--------------------------------+
-#                    +-------------------+
-#                                        v
-#                              +--------------------------------+
-#                              | update-image-readme            |
-#                              | release-only Docker Hub update |
-#                              +--------------------------------+
+#                                |
+#                                v
+#                +---------------------------------+
+#                | zsh                             |
+#                | github-builder bake.yml, one    |
+#                | call per Zsh version, target:zsh|
+#                +---------------------------------+
+#                                |
+#                                v
+#                +---------------------------------+
+#                | omz-latest                      |
+#                | latest OMZ x every Zsh version   |
+#                +---------------------------------+
+#                                |
+#                                v
+#                +---------------------------------+
+#                | omz-versions                     |
+#                | historical OMZ x latest Zsh;     |
+#                | runs after omz-latest, not       |
+#                | alongside it — see that job      |
+#                +---------------------------------+
+#                                |
+#                                v
+#                +---------------------------------+
+#                | update-image-readme              |
+#                | release-only Docker Hub update   |
+#                +---------------------------------+
 jobs:
   # Reusable workflow `with:` inputs cannot read the `env` context, so every shared value that
   # would otherwise live in a workflow-level `env:` block is published as a job output here.
@@ -171,9 +177,10 @@ jobs:
     strategy:
       # One failing historical Zsh build should not cancel validation of the other versions.
       fail-fast: false
-      # Docker Hub's abuse rate limit is per IP subnet and ignores account level, and GitHub-hosted
-      # runners share subnets, so unbounded fan-out gets the finalize manifest requests 429ed.
-      max-parallel: 6
+      # Bounds concurrent Docker Hub requests. This paces the burst rate but does not reduce the
+      # total request count, so it does not by itself guarantee staying under a per-account quota
+      # that resets hourly; see the omz-versions job for why it isn't run alongside omz-latest.
+      max-parallel: 3
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
@@ -210,7 +217,7 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
-      max-parallel: 6 # see the zsh job
+      max-parallel: 3 # see the zsh job
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
@@ -244,24 +251,29 @@ jobs:
   # Build every non-latest OMZ tag against the latest supported Zsh image.
   omz-versions:
     name: Oh My Zsh (versioned)
-    # `zsh` is skipped on an Oh My Zsh release, which must not skip this job in turn.
+    # Runs after omz-latest rather than alongside it: both jobs push to the same Docker Hub
+    # account, and that account's request quota resets hourly regardless of concurrency, so
+    # overlapping the two jobs only worsens how fast a shared budget is spent.
+    # `zsh` and `omz-latest` are skipped on an Oh My Zsh release, which must not skip this job.
     if: >-
       ${{
         always() &&
         needs.prepare.result == 'success' &&
         needs.prepare.outputs.omz_versions != '[]' &&
-        (needs.zsh.result == 'success' || needs.zsh.result == 'skipped')
+        (needs.zsh.result == 'success' || needs.zsh.result == 'skipped') &&
+        (needs.omz-latest.result == 'success' || needs.omz-latest.result == 'skipped')
       }}
     needs:
       - prepare
       - zsh
+      - omz-latest
     permissions:
       contents: read
       id-token: write
     strategy:
       # Historical OMZ versions are independent and can be built in parallel.
       fail-fast: false
-      max-parallel: 6 # see the zsh job
+      max-parallel: 3 # see the zsh job
       matrix:
         omz-version: ${{ fromJSON(needs.prepare.outputs.omz_versions) }}
     uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
