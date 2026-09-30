@@ -5,8 +5,10 @@ on:
     branches:
       - main
   pull_request:
-  schedule:
-    - cron: "46 2 * * 1"
+  # Sent by ohmyzsh/ohmyzsh when a release is published; see docs/ci-workflow.md for the sender.
+  repository_dispatch:
+    types:
+      - omz-release
 
 # The workflow only needs repository read access; Docker Hub credentials are supplied separately.
 permissions:
@@ -19,7 +21,7 @@ concurrency:
 
 # Workflow:
 #
-#   trigger (manual / push to main / pull request / weekly schedule)
+#   trigger (manual / push to main / pull request / Oh My Zsh release)
 #                                |
 #                                v
 #                +---------------------------------+
@@ -78,6 +80,7 @@ jobs:
           LATEST_OMZ: master
           ZSH_IMAGE: ohmyzsh/zsh
           OMZ_IMAGE: ohmyzsh/ohmyzsh
+          DISPATCH_OMZ_TAG: ${{ github.event.client_payload.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -107,47 +110,43 @@ jobs:
           # 4.3.11 keeps the patch and static PCRE backport paths covered on pull requests.
           pr_zsh="$(jq -cn --arg latest "$LATEST_ZSH" '["master", $latest, "4.3.11"]')"
 
-          # Each version costs a whole github-builder call, and a call spends three scaffolding
-          # jobs (registry-identities, prepare, finalize) on top of one build job per platform.
-          # That overhead is per call and cannot be amortised, because bake.yml builds exactly one
-          # target and fans out only over platforms. So the scheduled run refreshes master and the
-          # latest release every week and rotates the historical tail over four weeks instead;
-          # workflow_dispatch still rebuilds everything on demand.
-          week="$(date -u +%V)"
-          shard=$(( ${week#0} % 4 )) # strip the leading zero so weeks 08 and 09 are not read as octal
-          scheduled_zsh="$(printf '%s' "$all_zsh" | jq -c \
-            --arg latest "$LATEST_ZSH" \
-            --argjson shard "$shard" '
-              ["master", $latest] as $always
-              | map(select(. as $v | $always | index($v) == null)) as $historical
-              | $always + ($historical | to_entries | map(select(.key % 4 == $shard) | .value))
-            ')"
+          # The full upstream tag list, so newly published OMZ versions are picked up automatically;
+          # pagination prevents older versions from disappearing. `gh api` rejects --slurp together
+          # with --jq, so the pages are filtered afterwards.
+          all_omz() {
+            gh api repos/ohmyzsh/ohmyzsh/tags --paginate --slurp \
+              | jq -c '[.[][] | .name] | map(select(. != env.LATEST_OMZ))'
+          }
 
           case "$EVENT_NAME" in
             workflow_dispatch)
               zsh_versions="$all_zsh"
-              # The matrix is derived from the upstream tag list so newly published OMZ versions
-              # are included automatically; pagination prevents older versions from disappearing.
-              # `gh api` rejects --slurp together with --jq, so the pages are filtered afterwards.
-              omz_versions="$(gh api repos/ohmyzsh/ohmyzsh/tags \
-                --paginate \
-                --slurp \
-                | jq -c '[.[][] | .name] | map(select(. != env.LATEST_OMZ))')"
+              omz_versions="$(all_omz)"
               ;;
-            schedule)
-              zsh_versions="$scheduled_zsh"
-              omz_versions="$(gh api repos/ohmyzsh/ohmyzsh/tags \
-                --paginate \
-                --slurp \
-                | jq -c '[.[][] | .name] | map(select(. != env.LATEST_OMZ))')"
+            push)
+              # The only pushes to main are merged pull requests, and a change to the Dockerfiles —
+              # including Dependabot bumping the pinned Debian digest — invalidates every Zsh image
+              # rather than just the newest one.
+              zsh_versions="$all_zsh"
+              omz_versions='[]'
+              ;;
+            repository_dispatch)
+              # A new Oh My Zsh release leaves the Zsh layer beneath it untouched, so only the OMZ
+              # images are rebuilt. A payload without a tag falls back to the whole tag list.
+              zsh_versions='[]'
+              if [ -n "$DISPATCH_OMZ_TAG" ]; then
+                omz_versions="$(jq -cn --arg tag "$DISPATCH_OMZ_TAG" '[$tag]')"
+              else
+                omz_versions="$(all_omz)"
+              fi
               ;;
             pull_request)
               zsh_versions="$pr_zsh"
               omz_versions='[]'
               ;;
             *)
-              zsh_versions="$(jq -cn --arg latest "$LATEST_ZSH" '[$latest]')"
-              omz_versions='[]'
+              echo "::error ::unhandled event ${EVENT_NAME}"
+              exit 1
               ;;
           esac
 
@@ -164,6 +163,8 @@ jobs:
   zsh:
     name: Zsh
     needs: prepare
+    # An Oh My Zsh release rebuilds nothing below the OMZ layer.
+    if: ${{ needs.prepare.outputs.zsh_versions != '[]' }}
     permissions:
       contents: read # to fetch the repository content
       id-token: write # for signing attestations and cache entries with GitHub OIDC
@@ -243,7 +244,14 @@ jobs:
   # Build every non-latest OMZ tag against the latest supported Zsh image.
   omz-versions:
     name: Oh My Zsh (versioned)
-    if: ${{ needs.prepare.outputs.omz_versions != '[]' }}
+    # `zsh` is skipped on an Oh My Zsh release, which must not skip this job in turn.
+    if: >-
+      ${{
+        always() &&
+        needs.prepare.result == 'success' &&
+        needs.prepare.outputs.omz_versions != '[]' &&
+        (needs.zsh.result == 'success' || needs.zsh.result == 'skipped')
+      }}
     needs:
       - prepare
       - zsh
@@ -284,19 +292,21 @@ jobs:
   # Update Docker Hub descriptions only after all publishing jobs succeed.
   update-image-readme:
     needs:
+      - prepare
       - zsh
       - omz-latest
       - omz-versions
     runs-on: ubuntu-latest
-    # PRs never publish Docker Hub images, so they must not update Docker Hub descriptions.
+    # PRs never publish Docker Hub images, so they must not update Docker Hub descriptions. Each
+    # event builds a different subset, so any build job may legitimately be skipped.
     if: >-
       ${{
         always() &&
         github.event_name != 'pull_request' &&
-        needs.zsh.result == 'success' &&
-        needs.omz-latest.result == 'success' &&
-        (needs.omz-versions.result == 'success' ||
-          needs.omz-versions.result == 'skipped')
+        needs.prepare.result == 'success' &&
+        (needs.zsh.result == 'success' || needs.zsh.result == 'skipped') &&
+        (needs.omz-latest.result == 'success' || needs.omz-latest.result == 'skipped') &&
+        (needs.omz-versions.result == 'success' || needs.omz-versions.result == 'skipped')
       }}
     steps:
       # Keep network access auditable for the Docker Hub API call made by the script.
