@@ -128,10 +128,18 @@ rather than an error.
   `Unexpected type 'BasicExpressionToken' ... 'step env'` three times. The source is line 1051 of
   Docker's `bake.yml`, once per call site — not this repository. `actionlint` is clean.
 - **`gh api` rejects `--slurp` with `--jq`.** `prepare` slurps, then filters with a separate `jq`.
-- **Bare `429`s from Docker Hub are the abuse rate limit, not the pull limit.** It is per IP subnet
-  and identical for every account tier, so upgrading the Docker Hub plan will not help; HEAD
-  requests do not count towards pull limits either. Mitigated with `max-parallel: 6` on each build
-  matrix. Do not remove that without watching for 429s in `finalize`.
+- **Docker Hub 429s come from two different limits; check `docker-ratelimit-source` to tell them
+  apart.** A value like `20.168.108.226` (an IP) is the *abuse* limit — per subnet, identical for
+  every account tier, so a paid plan will not help. A value like `ohmyzshbot` (a username) is the
+  *account* request quota instead, confirmed once in production at `ratelimit-limit=200;w=3600`
+  with `ratelimit-remaining=0` on the failing request itself — this one **does** scale with plan
+  tier (Pro/Team/Business are unlimited). `zsh`, `omz-latest`, and `omz-versions` all push under
+  the same account, and each version resolves several images (base, SBOM scanner, and for OMZ
+  images the linked Zsh tag) before pushing, so the account quota is what a large matrix exhausts
+  first. Concurrency (`max-parallel: 3`) and running `omz-versions` strictly after `omz-latest`
+  only pace *how fast* that budget is spent — a quota that resets hourly is still exhausted by the
+  same total request count regardless of concurrency once a full rebuild fits inside an hour. Do
+  not remove either mitigation without watching for 429s across a full `workflow_dispatch` run.
 - **Forks are blocked** by `if: github.repository == 'ohmyzsh/docker'` on `prepare`. Comment it out
   to test in a fork.
 

@@ -79,10 +79,11 @@ run, because they execute in this repository's context.
 ## Job graph
 
 ```
-prepare ──┬─> zsh ──┬─> omz-latest ──┐
-          │         └─> omz-versions ┼─> update-image-readme
-          └──────────────────────────┘
+prepare ──> zsh ──> omz-latest ──> omz-versions ──> update-image-readme
 ```
+
+`omz-versions` runs strictly after `omz-latest` rather than alongside it — see the Docker Hub
+429 entry in Known quirks for why.
 
 | Job | Purpose |
 | --- | --- |
@@ -243,12 +244,18 @@ target to `docker-bake.hcl`, and add a job calling `bake.yml` with that target.
   real runner accepts the construct.
 - `gh api` rejects `--slurp` together with `--jq`, so `prepare` slurps first and filters with a
   separate `jq`.
-- **Docker Hub 429s in `finalize`.** A bare `429 Too Many Requests` with no documentation link is
-  Docker Hub's *abuse* rate limit, not the pull rate limit — HEAD requests do not count towards
-  pull limits at all. The abuse limit is applied per IPv4 address or IPv6 /64 subnet and
-  ["applies to all users equally regardless of account level"][abuse-limit], so a paid Docker Hub
-  subscription does not raise it. GitHub-hosted runners share subnets, so the mitigation is to cap
-  concurrency: each build matrix sets `max-parallel: 6`. Raise it only if 429s stay away.
+- **Docker Hub 429s, and which limit they come from.** Check the `docker-ratelimit-source` header:
+  an IP address is the *abuse* limit (per subnet, plan-agnostic); a username (e.g. `ohmyzshbot`) is
+  the *account* request quota, which does scale with Docker Hub plan tier. Both have been observed
+  in production. The account quota is the one a large matrix is most likely to exhaust: `zsh`,
+  `omz-latest`, and `omz-versions` push under the same account, and every version resolves several
+  images (base, SBOM scanner, and for OMZ images the linked Zsh tag) before pushing. Mitigations so
+  far are `max-parallel: 3` on each build matrix and running `omz-versions` strictly after
+  `omz-latest` rather than alongside it — both reduce how fast the budget is spent, but since the
+  quota resets hourly, they cannot guarantee staying under it if a full rebuild's total request
+  count exceeds the quota within that hour. Raising the Docker Hub plan tier for the pushing account
+  removes the account-quota ceiling outright; check `docker-ratelimit-source` on the next failure
+  before assuming which limit is in play.
 - Named context keys must use the familiar image form. `docker.io/ohmyzsh/zsh:5.9.2` as a key does
   not match `FROM docker.io/ohmyzsh/zsh:5.9.2`; `ohmyzsh/zsh:5.9.2` does. This failure is silent —
   the build just pulls from the registry instead.
