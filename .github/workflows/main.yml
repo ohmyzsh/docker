@@ -74,7 +74,7 @@ jobs:
     steps:
       # Audit outbound network destinations because this job calls the public GitHub API.
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -183,7 +183,7 @@ jobs:
       max-parallel: 3
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
-    uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    uses: docker/github-builder/.github/workflows/bake.yml@cbc9d42f8c89a55623392aadd03600965b80e963 # v1.18.1
     with:
       output: image
       target: zsh
@@ -220,7 +220,7 @@ jobs:
       max-parallel: 3 # see the zsh job
       matrix:
         zsh-version: ${{ fromJSON(needs.prepare.outputs.zsh_versions) }}
-    uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    uses: docker/github-builder/.github/workflows/bake.yml@cbc9d42f8c89a55623392aadd03600965b80e963 # v1.18.1
     with:
       output: image
       target: ohmyzsh
@@ -276,7 +276,7 @@ jobs:
       max-parallel: 3 # see the zsh job
       matrix:
         omz-version: ${{ fromJSON(needs.prepare.outputs.omz_versions) }}
-    uses: docker/github-builder/.github/workflows/bake.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    uses: docker/github-builder/.github/workflows/bake.yml@cbc9d42f8c89a55623392aadd03600965b80e963 # v1.18.1
     with:
       output: image
       target: ohmyzsh
@@ -323,7 +323,7 @@ jobs:
     steps:
       # Keep network access auditable for the Docker Hub API call made by the script.
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
