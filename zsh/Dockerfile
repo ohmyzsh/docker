@@ -1,7 +1,7 @@
 ARG ZSH_VERSION=5.9.2
 
 # Digest-pinned so Dependabot opens a rebuild pull request when Debian republishes the base image.
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS builder
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS builder
 ARG DEBIAN_FRONTEND=noninteractive
 
 SHELL ["/bin/sh", "-euxc"]
@@ -93,7 +93,7 @@ RUN for patch_file in /tmp/zsh-patches/*.patch; do \
     strip /opt/zsh/usr/bin/zsh; \
     find /opt/zsh -type f -name '*.a' -delete
 
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 ARG DEBIAN_FRONTEND=noninteractive
 
 # image metadata
